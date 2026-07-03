@@ -1,0 +1,54 @@
+# Standalone west manifest for iotc-zephyr-sdk.
+#
+# This repo is BOTH the manifest repo and the IOTCONNECT Zephyr module. It pins
+# a Zephyr LTS tag, imports the minimal Zephyr module set, and pulls in the
+# portable iotc-c-lib protocol core. cJSON lives INSIDE iotc-c-lib as a git
+# *submodule* (lib/cJSON), so the iotc-c-lib project below sets
+# `submodules: true` to make `west update` check it out; the top-level
+# CMakeLists.txt then compiles the bundled cJSON source into the
+# IOTCONNECT zephyr_library.
+#
+# Workspace topology after `west update`:
+#   <workspace>/
+#     iotc-zephyr-sdk/        (self, manifest repo == this module)
+#     zephyr/                 (v4.4.1)
+#     modules/lib/iotc-c-lib/ (protocol core + cJSON)
+#     modules/...             (Zephyr HAL/crypto deps imported from zephyr)
+manifest:
+  version: "1.2"
+
+  remotes:
+    - name: zephyrproject
+      url-base: https://github.com/zephyrproject-rtos
+    - name: avnet
+      url-base: https://github.com/avnet-iotconnect
+
+  projects:
+    # --- Zephyr LTS, with a minimal import allowlist ---------------------
+    # Add your silicon vendor HAL here (hal_nxp / hal_nordic / hal_renesas /
+    # hal_st) when targeting that family. mbedTLS + mcuboot cover TLS + OTA.
+    - name: zephyr
+      remote: zephyrproject
+      revision: v4.4.1
+      import:
+        name-allowlist:
+          - cmsis
+          - mbedtls
+          - mcuboot
+          - segger
+          - picolibc
+          - hal_nxp        # FRDM-MCXN947 reference target
+          # - hal_nordic
+          # - hal_renesas
+          # - hal_st
+
+    # --- Portable IOTCONNECT protocol core (bundles cJSON as a submodule) -
+    - name: iotc-c-lib
+      remote: avnet
+      revision: v3.0.0       # TODO: pin to the exact reviewed commit/tag
+      path: modules/lib/iotc-c-lib
+      submodules: true       # checks out lib/cJSON (DaveGamble/cJSON)
+
+  self:
+    # This repo is the module too; expose it on the module search path.
+    path: iotc-zephyr-sdk

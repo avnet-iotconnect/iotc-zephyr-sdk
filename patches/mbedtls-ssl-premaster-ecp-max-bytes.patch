@@ -1,0 +1,18 @@
+diff --git a/include/mbedtls/ssl.h b/include/mbedtls/ssl.h
+index 3a69df5..1845be4 100644
+--- a/include/mbedtls/ssl.h
++++ b/include/mbedtls/ssl.h
+@@ -653,7 +653,12 @@ union mbedtls_ssl_premaster_secret {
+     unsigned char dummy; /* Make the union non-empty even with SSL disabled */
+ #if defined(MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED)    || \
+     defined(MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED)
+-    unsigned char _pms_ecdh[MBEDTLS_ECP_MAX_BYTES];    /* RFC 4492 5.10 */
++    /* RFC 4492 5.10. On PSA-only builds (TF-M) the legacy ECP module is off, so
++     * MBEDTLS_ECP_MAX_BYTES collapses to 1 and this buffer would be too small
++     * for psa_raw_key_agreement (PSA_ERROR_BUFFER_TOO_SMALL). Floor it at 66 B
++     * (P-521) so the ECDH secret always fits. [Avnet IOTCONNECT TF-M patch] */
++    unsigned char _pms_ecdh[(MBEDTLS_ECP_MAX_BYTES) > 66 ?
++                            (MBEDTLS_ECP_MAX_BYTES) : 66];
+ #endif
+ #if defined(MBEDTLS_KEY_EXCHANGE_PSK_ENABLED)
+     unsigned char _pms_psk[4 + 2 * MBEDTLS_PSK_MAX_LEN];       /* RFC 4279 2 */

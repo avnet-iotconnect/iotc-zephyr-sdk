@@ -1,0 +1,7 @@
+# Registers iotc-zephyr-sdk as a Zephyr module.
+#   build.cmake    -> directory containing the module CMakeLists.txt ('.' = root)
+#   build.kconfig  -> top-level Kconfig pulled into the Zephyr Kconfig tree
+name: iotconnect
+build:
+  cmake: .
+  kconfig: Kconfig

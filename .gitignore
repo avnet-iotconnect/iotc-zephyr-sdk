@@ -1,0 +1,34 @@
+# --- Build output (Zephyr / west / CMake) ---
+build/
+build_*/
+twister-out*/
+
+# Compiled / binary artifacts
+*.o
+*.obj
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# --- Secrets: per-device TLS credentials ---
+# device_credentials.h is GENERATED (creds/gen_creds_header.py) and contains the
+# device PRIVATE KEY -- NEVER commit it. quickstart_credentials.h (public CA
+# roots only) is safe and IS committed.
+device_credentials.h
+creds/extracted/
+
+# Key material of any kind (safety net)
+*.pem
+*.key
+*.der
+*.p12
+*.pfx
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+*.swp
+*~

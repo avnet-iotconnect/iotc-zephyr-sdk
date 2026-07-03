@@ -1,0 +1,27 @@
+diff --git a/boards/nxp/frdm_mcxn947/frdm_mcxn947_mcxn947_cpu0_ns.dts b/boards/nxp/frdm_mcxn947/frdm_mcxn947_mcxn947_cpu0_ns.dts
+index 669fb80cf0e..3fbbb38fcf1 100644
+--- a/boards/nxp/frdm_mcxn947/frdm_mcxn947_mcxn947_cpu0_ns.dts
++++ b/boards/nxp/frdm_mcxn947/frdm_mcxn947_mcxn947_cpu0_ns.dts
+@@ -34,15 +34,18 @@
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		/* RAM split used by TFM */
++		/* RAM split used by TF-M. Boundary moved from 0x20030000 to 0x20028000
++		 * (secure 160 KB / non-secure 160 KB, both within the 320 KB sram0)
++		 * to give the non-secure app more RAM; MUST match S_DATA_SIZE=0x28000
++		 * in the TF-M platform region_defs.h. [Avnet IOTCONNECT rebalance] */
+ 		secure_ram: partition@20000000 {
+ 			label = "secure-memory";
+-			reg = <0x20000000 DT_SIZE_K(196)>;
++			reg = <0x20000000 DT_SIZE_K(160)>;
+ 		};
+ 
+-		non_secure_ram: partition@20030000 {
++		non_secure_ram: partition@20028000 {
+ 			label = "non-secure-memory";
+-			reg = <0x20030000 DT_SIZE_K(128)>;
++			reg = <0x20028000 DT_SIZE_K(160)>;
+ 		};
+ 	};
+ };

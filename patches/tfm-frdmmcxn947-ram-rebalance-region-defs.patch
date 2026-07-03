@@ -1,0 +1,21 @@
+diff --git a/platform/ext/target/nxp/frdmmcxn947/partition/region_defs.h b/platform/ext/target/nxp/frdmmcxn947/partition/region_defs.h
+index b436347..3a076e8 100644
+--- a/platform/ext/target/nxp/frdmmcxn947/partition/region_defs.h
++++ b/platform/ext/target/nxp/frdmmcxn947/partition/region_defs.h
+@@ -113,7 +113,15 @@
+ #define S_CODE_LIMIT    (S_CODE_START + S_CODE_SIZE - 1)
+ 
+ #define S_DATA_START                    (S_RAM_ALIAS(S_DATA_OFFSET + RESERVED_RAM_SIZE))
+-#define S_DATA_SIZE                     (0x30000 - RESERVED_RAM_SIZE)
++/* Secure/non-secure RAM boundary. Default 0x30000 gives secure 192 KB total /
++ * NS 128 KB (of the 320 KB contiguous sram0 @ 0x20000000-0x20050000). The TF-M
++ * secure world only uses ~117 KB, so we move the boundary to 0x28000 (secure
++ * 160 KB total = 144 KB data + 16 KB reserved) to hand the NS app the extra
++ * 32 KB (128 KB -> 160 KB), so the /ns app can run heavier demos (e.g.
++ * click-telemetry) alongside the TF-M-sealed key. Must stay within sram0 (NS
++ * end <= 0x20050000; sramg/sramh above are not populated as main RAM).
++ * The board DTS non_secure_ram must match (0x20028000, 160 KB). [Avnet patch] */
++#define S_DATA_SIZE                     (0x28000 - RESERVED_RAM_SIZE)
+ #define S_DATA_LIMIT                    (S_DATA_START + S_DATA_SIZE - 1)
+ 
+ /* Size of vector table: 171 interrupt handlers(see g_pfnVectors definition) + 4 bytes MPS initial value ((171*4 + 4) = 688 = 0x2b0) */

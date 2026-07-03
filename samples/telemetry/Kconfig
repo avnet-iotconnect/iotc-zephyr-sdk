@@ -1,0 +1,12 @@
+# Sample-specific Kconfig. Pulls in the SDK menu and adds app loop tuning.
+mainmenu "IOTCONNECT Telemetry Sample"
+
+config APP_TELEMETRY_INTERVAL_SEC
+	int "Telemetry send interval (seconds)"
+	default 5
+
+config APP_TELEMETRY_DURATION_MIN
+	int "Telemetry run duration (minutes, negative = forever)"
+	default -1
+
+source "Kconfig.zephyr"

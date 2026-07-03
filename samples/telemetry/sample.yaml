@@ -1,0 +1,20 @@
+sample:
+  name: IOTCONNECT Telemetry
+  description: >
+    Connects a Zephyr device to Avnet /IOTCONNECT over MQTT/TLS, runs the
+    Device REST API discovery/identity bootstrap, publishes periodic telemetry,
+    and handles cloud-to-device commands. Vendor-neutral; first reference
+    target is FRDM-MCXN947.
+common:
+  tags: iotconnect mqtt tls net sample
+  harness: net
+tests:
+  sample.iotconnect.telemetry:
+    # First reference target. Other boards are added via boards/<board>.conf
+    # overlays, not new SDK code (see docs/porting-new-board.md).
+    platform_allow:
+      - frdm_mcxn947/mcxn947/cpu0
+      - native_sim
+    build_only: true
+    integration_platforms:
+      - frdm_mcxn947/mcxn947/cpu0

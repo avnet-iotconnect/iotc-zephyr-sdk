@@ -1,0 +1,278 @@
+# iotc-zephyr-sdk Kconfig
+#
+# Enabling IOTCONNECT selects the full Zephyr networking/TLS/MQTT/SNTP/settings
+# stack the SDK depends on, so a consuming app only needs CONFIG_IOTCONNECT=y
+# plus board networking glue.
+
+menuconfig IOTCONNECT
+	bool "Avnet /IOTCONNECT connectivity SDK"
+	select NETWORKING
+	select NET_SOCKETS
+	select NET_SOCKETS_SOCKOPT_TLS
+	select NET_IPV4
+	select NET_TCP
+	select DNS_RESOLVER
+	select MQTT_LIB
+	select MQTT_LIB_TLS
+	select TLS_CREDENTIALS
+	select MBEDTLS
+	select HTTP_CLIENT
+	select SNTP
+	select POSIX_TIMERS
+	help
+	  Vendor-neutral Avnet /IOTCONNECT SDK for Zephyr, built on the portable
+	  iotc-c-lib protocol core. Provides MQTT/TLS connectivity, Device REST API
+	  (discovery/identity) bootstrap, telemetry, and C2D command/OTA handling.
+
+if IOTCONNECT
+
+# ---------------------------------------------------------------------------
+# Device identity (may also be supplied at runtime via IotConnectClientConfig)
+# ---------------------------------------------------------------------------
+config IOTCONNECT_CPID
+	string "IOTCONNECT CPID"
+	default ""
+	help
+	  Company/Platform ID. May be left empty here and set at runtime.
+
+config IOTCONNECT_ENV
+	string "IOTCONNECT environment"
+	default ""
+	help
+	  IOTCONNECT environment name (e.g. the value shown on the device console).
+
+config IOTCONNECT_DUID
+	string "IOTCONNECT device unique ID (DUID)"
+	default ""
+	help
+	  Unique device id. If empty, the application must supply one at runtime
+	  (e.g. derived from a board UID).
+
+config IOTCONNECT_IDENTITY_NVS
+	bool "Load device identity from a persistent store (NVS / TF-M PS / SD)"
+	depends on SETTINGS || BUILD_WITH_TFM || IOTCONNECT_IDENTITY_DISK
+	help
+	  Resolve device identity (cpid/env/duid + device cert/key) at runtime from a
+	  persistent store instead of compiled-in values. Provision once via the
+	  `iotc cred` shell commands (see IOTCONNECT_SHELL); credentials then survive
+	  an application reflash and can be swapped without recompiling. The
+	  application should call iotc_identity_load() and fall back to compiled-in
+	  credentials when it returns -ENOENT (not provisioned). The broker/DRA CA
+	  roots stay compiled-in; only the per-device secrets are stored.
+
+	  Storage backend is chosen automatically: on TF-M builds (BUILD_WITH_TFM)
+	  the identity is sealed in hardware-backed PSA Protected Storage -- and the
+	  non-secure flash driver is NOT required, which matters on SoCs (e.g.
+	  MCXN947) whose flash controller is unusable from the non-secure world.
+	  Otherwise it uses Zephyr settings/NVS (SETTINGS_NVS + NVS + FLASH_MAP),
+	  or a raw SD/eMMC sector region if IOTCONNECT_IDENTITY_DISK is set.
+
+config IOTCONNECT_IDENTITY_DISK
+	bool "Persist device identity to a raw SD/eMMC disk region"
+	depends on DISK_ACCESS
+	help
+	  For bare-metal AP-class targets that run Zephyr from DRAM with NO on-chip
+	  NVS flash (e.g. the i.MX93 Cortex-A55) but boot from -- and can write -- an
+	  SD/eMMC card. The provisioned identity is packed into one blob and stored in
+	  a reserved sector region on that disk via the block API (disk_access). The
+	  boot image lives at the raw 32 KB offset; this region sits well past it, so
+	  the two do not collide and no filesystem/partition is required. Takes
+	  priority over the settings/NVS backend when set.
+
+config IOTCONNECT_IDENTITY_DISK_NAME
+	string "Disk name for identity storage"
+	default "SD2"
+	depends on IOTCONNECT_IDENTITY_DISK
+	help
+	  Zephyr disk-access name of the boot SD/eMMC (the `disk-name` of the
+	  zephyr,mmc-disk / zephyr,sdmmc-disk node). Default "SD2" matches the
+	  frdm_imx93 A55 usdhc1 node.
+
+config IOTCONNECT_IDENTITY_DISK_SECTOR
+	int "Start sector of the identity region (512-byte sectors)"
+	default 8192
+	depends on IOTCONNECT_IDENTITY_DISK
+	help
+	  Sector offset of the reserved identity region. Default 8192 = 4 MB, well
+	  past the boot container at 32 KB. Must not overlap the boot image or any
+	  data partition you place on the card.
+
+config IOTCONNECT_ONDEVICE_KEYGEN
+	bool "On-device key + self-signed certificate generation"
+	depends on MBEDTLS
+	select MBEDTLS_X509_CRT_WRITE_C
+	select MBEDTLS_PK_WRITE_C
+	select MBEDTLS_PEM_WRITE_C
+	help
+	  Generate an EC P-256 keypair on the device (hardware-backed RNG) and
+	  self-sign an X.509 certificate (CN=DUID) for IOTCONNECT Self-Signed auth,
+	  so the private key never has to leave the device. Provides
+	  iotc_provision_selfsigned() and (with IOTCONNECT_SHELL) the `iotcprov
+	  keygen <duid>` command. Pulls in the mbedTLS certificate-writing code.
+
+config IOTCONNECT_SHELL
+	bool "IOTCONNECT provisioning shell (iotc cred ...)"
+	depends on SHELL && IOTCONNECT_IDENTITY_NVS
+	help
+	  Register the `iotc cred` shell command tree to provision device identity
+	  into NVS: cpid/env/duid as strings and the device cert/key as single-line
+	  base64 (paste-friendly over a serial console). `iotc cred show` / `clear`
+	  inspect and erase the stored identity.
+
+choice IOTCONNECT_CONNECTION_TYPE
+	prompt "Cloud connection type"
+	default IOTCONNECT_CT_AWS
+	help
+	  Selects the DRA discovery URL builder and username handling.
+
+config IOTCONNECT_CT_AWS
+	bool "AWS"
+
+config IOTCONNECT_CT_AZURE
+	bool "Azure"
+
+endchoice
+
+# ---------------------------------------------------------------------------
+# Device REST API (runtime broker discovery)
+# ---------------------------------------------------------------------------
+config IOTCONNECT_DRA
+	bool "Use HTTP(S) Device REST API for discovery/identity"
+	default y
+	help
+	  Resolve the MQTT broker host, client id, username and topics at runtime
+	  via the IOTCONNECT Discovery + Identity REST flow. Disable only if the
+	  broker parameters are provisioned by other means.
+
+config IOTCONNECT_DRA_DISCOVERY_HOST
+	string "Discovery host"
+	default "discovery.iotconnect.io"
+	depends on IOTCONNECT_DRA
+	help
+	  Global discovery endpoint host. AWS deployments may use a region-specific
+	  host (e.g. awsdiscovery.iotconnect.io).
+
+config IOTCONNECT_DRA_HTTP_RECV_BUF_SIZE
+	int "DRA HTTP receive buffer size (bytes)"
+	default 2048
+	depends on IOTCONNECT_DRA
+	help
+	  Buffer for discovery/identity HTTPS response bodies.
+
+config IOTCONNECT_DRA_HTTP_TIMEOUT_MS
+	int "DRA HTTP request timeout (ms)"
+	default 10000
+	depends on IOTCONNECT_DRA
+
+# ---------------------------------------------------------------------------
+# TLS credentials (sec tags)
+# ---------------------------------------------------------------------------
+config IOTCONNECT_SEC_TAG_DEVICE
+	int "Device cert/key sec tag"
+	default 10
+	help
+	  TLS sec tag holding the device certificate AND private key (one tag, a
+	  cert+key pair) used for the mutual-TLS MQTT connection.
+
+config IOTCONNECT_SEC_TAG_BROKER_CA
+	int "Broker (cloud) root CA sec tag"
+	default 11
+	help
+	  TLS sec tag for the cloud root CA (Starfield G2 for AWS, DigiCert Global
+	  Root G2 for Azure) used to verify the MQTT broker.
+
+config IOTCONNECT_SEC_TAG_DRA_CA
+	int "Discovery/Identity HTTPS root CA sec tag"
+	default 12
+	depends on IOTCONNECT_DRA
+	help
+	  TLS sec tag for the GoDaddy G2 root used to verify the DRA HTTPS endpoint.
+
+config IOTCONNECT_TLS_PEER_VERIFY
+	int "TLS peer verification level"
+	default 2
+	range 0 2
+	help
+	  0 = none, 1 = optional, 2 = required. Maps to TLS_PEER_VERIFY_*.
+
+config IOTCONNECT_USE_PSA_PROTECTED_STORAGE
+	bool "Store TLS credentials in PSA Protected Storage"
+	default n
+	help
+	  When set, expects CONFIG_TLS_CREDENTIALS_BACKEND_PROTECTED_STORAGE (TF-M)
+	  so device keys persist in PSA Protected Storage instead of volatile RAM.
+
+# ---------------------------------------------------------------------------
+# MQTT transport tuning
+# ---------------------------------------------------------------------------
+config IOTCONNECT_MQTT_PORT
+	int "MQTT broker port"
+	default 8883
+
+config IOTCONNECT_MQTT_RX_BUF_SIZE
+	int "MQTT RX buffer size"
+	default 1400
+
+config IOTCONNECT_MQTT_TX_BUF_SIZE
+	int "MQTT TX buffer size"
+	default 1400
+
+config IOTCONNECT_MQTT_KEEPALIVE_SEC
+	int "MQTT keepalive (seconds)"
+	default 30
+
+config IOTCONNECT_MQTT_QOS
+	int "Default publish QoS"
+	default 1
+	range 0 2
+
+# ---------------------------------------------------------------------------
+# SNTP wall-clock
+# ---------------------------------------------------------------------------
+config IOTCONNECT_SNTP_SERVER
+	string "SNTP server"
+	default "pool.ntp.org"
+	help
+	  Wall-clock must be set before the TLS handshake (mbedTLS checks cert
+	  validity against time()).
+
+config IOTCONNECT_SNTP_TIMEOUT_MS
+	int "SNTP request timeout (ms)"
+	default 5000
+
+# ---------------------------------------------------------------------------
+# OTA (optional; MCUboot/DFU)
+# ---------------------------------------------------------------------------
+config IOTCONNECT_OTA
+	bool "Enable OTA firmware update handling"
+	default n
+	help
+	  Compile the OTA C2D handler path (download into the MCUboot secondary
+	  slot via DFU, then request swap + reboot). Requires a bootloader/DFU
+	  capable board; off by default for the consolidation baseline.
+
+# ---------------------------------------------------------------------------
+# Threading / message pump
+# ---------------------------------------------------------------------------
+config IOTCONNECT_THREAD_STACK_SIZE
+	int "IOTCONNECT transport thread stack size"
+	default 4096
+	help
+	  Stack for the MQTT message-pump / keepalive thread.
+
+config IOTCONNECT_THREAD_PRIORITY
+	int "IOTCONNECT transport thread priority"
+	default 5
+
+config IOTCONNECT_C2D_WORKQ_STACK_SIZE
+	int "C2D worker stack size"
+	default 3072
+	help
+	  Stack for the work item that runs iotcl_c2d_process_event off the MQTT
+	  receive context (command/OTA callbacks run here).
+
+module = IOTCONNECT
+module-str = iotconnect
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # IOTCONNECT
