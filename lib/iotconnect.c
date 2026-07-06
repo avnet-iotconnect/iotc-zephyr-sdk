@@ -26,6 +26,9 @@
 
 #include "iotconnect.h"
 #include "iotconnect_telemetry.h"
+#if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
+#include "iotconnect_vitals.h"
+#endif
 
 /* iotc-c-lib core */
 #include "iotcl.h"
@@ -449,6 +452,9 @@ int iotconnect_sdk_send_telemetry_number(const char *path, double value)
 
 	ret = iotcl_telemetry_set_number(msg, path, value);
 	if (ret == IOTCL_SUCCESS) {
+#if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
+		iotc_vitals_append(msg);
+#endif
 		ret = iotcl_mqtt_send_telemetry(msg, false);
 	}
 
@@ -474,6 +480,9 @@ int iotconnect_sdk_send_telemetry_string(const char *path, const char *value)
 
 	ret = iotcl_telemetry_set_string(msg, path, value);
 	if (ret == IOTCL_SUCCESS) {
+#if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
+		iotc_vitals_append(msg);
+#endif
 		ret = iotcl_mqtt_send_telemetry(msg, false);
 	}
 
@@ -497,6 +506,11 @@ int iotc_telemetry_send(IotclMessageHandle msg, bool pretty)
 	if (msg == NULL) {
 		return IOTCL_ERR_MISSING_VALUE;
 	}
+
+#if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
+	/* Ride a "sys" object of device vitals along with every telemetry send. */
+	iotc_vitals_append(msg);
+#endif
 
 	ret = iotcl_mqtt_send_telemetry(msg, pretty);
 

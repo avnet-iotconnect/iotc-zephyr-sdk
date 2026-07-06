@@ -271,6 +271,29 @@ config IOTCONNECT_C2D_WORKQ_STACK_SIZE
 	  Stack for the work item that runs iotcl_c2d_process_event off the MQTT
 	  receive context (command/OTA callbacks run here).
 
+# ---------------------------------------------------------------------------
+# Device vitals (operational-telemetry sidecar)
+# ---------------------------------------------------------------------------
+config IOTCONNECT_DEVICE_VITALS
+	bool "Append device vitals (sys.*) to telemetry"
+	select SCHED_THREAD_USAGE
+	select THREAD_RUNTIME_STATS
+	select SYS_HEAP_RUNTIME_STATS
+	select HWINFO
+	help
+	  Add a nested "sys" object -- CPU load %, core frequency, heap used/free,
+	  uptime, last reset cause, firmware version, and (where a board wires a
+	  "die-temp" devicetree alias + CONFIG_SENSOR) on-chip die temperature -- to
+	  telemetry sent via iotc_telemetry_send(). Every field degrades gracefully:
+	  metrics with no backing support on the target are omitted. If you build and
+	  send messages directly (iotcl_mqtt_send_telemetry), call
+	  iotc_vitals_append(msg) yourself before serializing.
+
+config IOTCONNECT_FW_VERSION
+	string "Firmware version reported in sys.fw"
+	default "0.1.0"
+	depends on IOTCONNECT_DEVICE_VITALS
+
 module = IOTCONNECT
 module-str = iotconnect
 source "subsys/logging/Kconfig.template.log_config"
