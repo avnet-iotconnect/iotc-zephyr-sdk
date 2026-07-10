@@ -333,3 +333,19 @@ out_free_body:
 	k_free(body);
 	return status;
 }
+
+int iotc_https_download(const char *hostname,
+			const char *resource,
+			int ca_sec_tag,
+			int timeout_ms,
+			uint8_t *buf,
+			size_t buf_size,
+			size_t *out_len)
+{
+	if (hostname == NULL || resource == NULL || buf == NULL ||
+	    out_len == NULL || buf_size == 0) {
+		return -EINVAL;
+	}
+	return dra_https_get(hostname, resource, ca_sec_tag, timeout_ms,
+			     buf, buf_size, out_len);
+}

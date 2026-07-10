@@ -122,18 +122,12 @@ void iotc_vitals_append(IotclMessageHandle msg)
 	}
 #endif
 
-	/* Core clock (MHz). */
-#if defined(CONFIG_CPU_CORTEX_M)
-	{
-		extern uint32_t SystemCoreClock;
-
-		iotcl_telemetry_set_number(msg, "sys.freq_mhz",
-					   (double)SystemCoreClock / 1e6);
-	}
-#else
+	/* Core clock (MHz). On Cortex-M the SysTick hw-cycle clock is the core
+	 * clock, so the generic Zephyr API reports the same value as the CMSIS
+	 * SystemCoreClock global -- which not every vendor HAL exports under
+	 * Zephyr (e.g. Atmel/Microchip SAM0 has no SystemCoreClock symbol). */
 	iotcl_telemetry_set_number(msg, "sys.freq_mhz",
 				   (double)sys_clock_hw_cycles_per_sec() / 1e6);
-#endif
 
 	/* System heap (bytes). */
 #if defined(CONFIG_SYS_HEAP_RUNTIME_STATS) && (CONFIG_HEAP_MEM_POOL_SIZE > 0)

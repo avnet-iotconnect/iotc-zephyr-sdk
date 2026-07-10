@@ -14,6 +14,9 @@
 #ifndef IOTC_DRA_CLIENT_H
 #define IOTC_DRA_CLIENT_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -46,6 +49,20 @@ typedef struct {
  * error code (HTTP failure or IOTCL_ERR_*).
  */
 int iotc_dra_run(const iotc_dra_config_t *cfg);
+
+/**
+ * General-purpose single HTTPS GET reusing the DRA transport: fetch
+ * https://<hostname><resource> verifying the peer with ca_sec_tag, into buf.
+ * Intended for small downloads delivered by C2D URLs (e.g. AI Model blobs);
+ * the body must fit in buf or -ENOMEM is returned. Returns 0 or -errno.
+ */
+int iotc_https_download(const char *hostname,
+			const char *resource,
+			int ca_sec_tag,
+			int timeout_ms,
+			uint8_t *buf,
+			size_t buf_size,
+			size_t *out_len);
 
 #ifdef __cplusplus
 }
