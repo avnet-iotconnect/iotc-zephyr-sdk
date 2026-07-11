@@ -144,6 +144,11 @@ static void c2d_work_handler(struct k_work *item)
 {
 	struct c2d_work *w = CONTAINER_OF(item, struct c2d_work, work);
 
+	/* Payload visibility for integrating new C2D message shapes (OTA,
+	 * module/model pushes). C2D traffic is rare, so INF is low-noise; the
+	 * buffer is NUL-terminated by the rx path. */
+	LOG_INF("C2D payload: %s", (const char *)w->data);
+
 	/*
 	 * Single iotc-c-lib inbound entry point: validates the topic against
 	 * sub_c2d and fires cmd_cb/ota_cb. IOTCL_ERR_IGNORED (e.g. a topic we
