@@ -173,7 +173,12 @@ static int dra_https_get(const char *hostname,
 	req.method = HTTP_GET;
 	req.url = resource;
 	req.host = hostname;
-	req.port = DRA_HTTPS_PORT_STR;
+	/* req.port stays NULL: when set, Zephyr's http_client sends
+	 * "Host: <host>:443", but AWS SigV4 presigned URLs sign the Host
+	 * header WITHOUT the default port -- S3 answers
+	 * SignatureDoesNotMatch (hardware-observed on AI Model downloads).
+	 * The connection port comes from getaddrinfo above, and RFC 9110
+	 * omits default ports in Host. */
 	req.protocol = "HTTP/1.1";
 	req.content_type_value = "application/json";
 	req.response = dra_response_cb;
