@@ -290,6 +290,11 @@ static int disk_pack_store(void)
 		LOG_ERR("disk write failed");
 		return -EIO;
 	}
+	/* Flush the device's write cache: eMMC parts buffer writes internally
+	 * and an abrupt power-off can drop them (hardware-observed: identity
+	 * vanished across a power cycle without this). */
+	(void)disk_access_ioctl(CONFIG_IOTCONNECT_IDENTITY_DISK_NAME,
+				DISK_IOCTL_CTRL_SYNC, NULL);
 	return 0;
 }
 

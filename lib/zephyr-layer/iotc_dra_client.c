@@ -32,6 +32,9 @@
 #include <zephyr/net/http/client.h>
 
 #include "iotc_dra_client.h"
+#if defined(CONFIG_IOTCONNECT_FILE_UPLOAD)
+#include "iotc_file_upload.h"
+#endif
 
 /* iotc-c-lib core + DRA module. */
 #include "iotcl.h"
@@ -321,6 +324,12 @@ int iotc_dra_run(const iotc_dra_config_t *cfg)
 		LOG_ERR("DRA: identity response parse failed: %d", status);
 		goto out_deinit_url;
 	}
+
+#if defined(CONFIG_IOTCONNECT_FILE_UPLOAD)
+	/* Capture the Telemetry Files extras (upload bucket + fu topic) that
+	 * iotc-c-lib does not store. */
+	iotc_fu_identity_hook((const char *)body);
+#endif
 
 	LOG_INF("DRA: discovery/identity complete; MQTT config populated");
 	status = IOTCL_SUCCESS;

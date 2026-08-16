@@ -52,6 +52,9 @@ if(CONFIG_IOTCONNECT)
   zephyr_library_sources_ifdef(CONFIG_IOTCONNECT_DEVICE_VITALS
     lib/zephyr-layer/iotc_device_vitals.c
   )
+  zephyr_library_sources_ifdef(CONFIG_IOTCONNECT_FILE_UPLOAD
+    lib/zephyr-layer/iotc_file_upload.c
+  )
 
   # --- iotc-c-lib protocol core (always required) ---------------------------
   zephyr_library_sources(

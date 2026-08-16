@@ -294,6 +294,18 @@ config IOTCONNECT_FW_VERSION
 	default "0.1.0"
 	depends on IOTCONNECT_DEVICE_VITALS
 
+config IOTCONNECT_FILE_UPLOAD
+	bool "Telemetry Files device-to-cloud file upload (AWS)"
+	depends on IOTCONNECT_DRA
+	depends on HTTP_CLIENT
+	help
+	  Device-to-cloud file upload into the platform's Telemetry Files
+	  panel: fetches temporary S3 credentials from the AWS IoT
+	  credentials provider (mutual TLS with the device identity), PUTs
+	  the file with an on-device AWS SigV4 signature, and announces it
+	  on the identity-provided "fu" MQTT topic. Requires "File Support"
+	  enabled on the device template. See iotc_file_upload.h.
+
 module = IOTCONNECT
 module-str = iotconnect
 source "subsys/logging/Kconfig.template.log_config"
