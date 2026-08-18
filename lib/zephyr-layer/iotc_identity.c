@@ -335,11 +335,28 @@ int iotc_identity_load(struct iotc_identity *id)
 	if (id == NULL) {
 		return -EINVAL;
 	}
-	if (disk_prepare()) {
-		return -ENOENT;
+	/* Cold power-up: the eMMC can fail its first access shortly after
+	 * reset (hardware-observed: a provisioned board booted "unprovisioned"
+	 * once, then loaded fine on the next cycle). Retry briefly before
+	 * declaring the region blank. */
+	int rc = -1;
+
+	for (int attempt = 0; attempt < 3; attempt++) {
+		if (attempt > 0) {
+			k_sleep(K_MSEC(250));
+		}
+		if (disk_prepare()) {
+			continue;
+		}
+		rc = disk_access_read(CONFIG_IOTCONNECT_IDENTITY_DISK_NAME,
+				      s_disk_buf,
+				      CONFIG_IOTCONNECT_IDENTITY_DISK_SECTOR,
+				      IOTC_DISK_SECT_CNT);
+		if (rc == 0) {
+			break;
+		}
 	}
-	if (disk_access_read(CONFIG_IOTCONNECT_IDENTITY_DISK_NAME, s_disk_buf,
-			     CONFIG_IOTCONNECT_IDENTITY_DISK_SECTOR, IOTC_DISK_SECT_CNT)) {
+	if (rc != 0) {
 		return -ENOENT;
 	}
 	if (sys_get_le32(s_disk_buf) != IOTC_DISK_MAGIC) {
