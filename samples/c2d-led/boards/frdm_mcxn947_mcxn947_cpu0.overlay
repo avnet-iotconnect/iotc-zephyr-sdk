@@ -7,10 +7,14 @@
  * and declares the PHY at MDIO address 0. Modeled on the NXP MCX-Nx4x EVK
  * (same SoC family), which uses the generic "ethernet-phy" driver over RMII.
  *
- * NOTE: there are known open Zephyr issues with MDIO/PHY bring-up on NXP MCXN
- * ENET-QoS (zephyrproject-rtos/zephyr #92695, #94300). If the PHY link never
- * comes up at runtime, that driver gap -- not this overlay -- is the suspect;
- * verify the PHY MDIO address against board UM12018 (default assumed: 0).
+ * NOTE (hardware-verified, Zephyr v4.4.1): after a WARM reset -- a debugger
+ * reset (e.g. right after `west flash`) or the reset pin -- the ENET-QoS MAC
+ * fails init with "Can't clear SWR" and Ethernet stays down; the blocking
+ * state clears only on a power-on reset. Power-cycle the board (unplug and
+ * replug USB) after flashing. Cold boots work. Pulsing the SYSCON ENET module
+ * reset and skipping the PHY soft-reset (`no-reset`) were both tested on
+ * hardware and do not help; the fix belongs in upstream platform init (see
+ * the TODO in Zephyr's eth_nxp_enet_qos.c).
  */
 
 &enet {
