@@ -7,11 +7,12 @@
  * and declares the PHY at MDIO address 0. Modeled on the NXP MCX-Nx4x EVK
  * (same SoC family), which uses the generic "ethernet-phy" driver over RMII.
  *
- * NOTE (hardware-verified, Zephyr v4.4.1): after a WARM reset -- a debugger
- * reset (e.g. right after `west flash`) or the reset pin -- the ENET-QoS MAC
- * fails init with "Can't clear SWR" and Ethernet stays down; the blocking
- * state clears only on a power-on reset. Power-cycle the board (unplug and
- * replug USB) after flashing. Cold boots work. Pulsing the SYSCON ENET module
+ * NOTE: if ENET init fails at boot with "Can't clear SWR", the 50 MHz RMII
+ * REF_CLK from the PHY is not reaching the SoC. On FRDM-MCXN947 the usual
+ * cause is board rework: NXP's camera/LCD demo setups move solder jumpers
+ * that re-route the shared ENET pins, disconnecting Ethernet in hardware
+ * until the jumpers are restored. The PHY still responds over MDIO and even
+ * reports link, which makes this easy to misread as a driver bug. Pulsing the SYSCON ENET module
  * reset and skipping the PHY soft-reset (`no-reset`) were both tested on
  * hardware and do not help; the fix belongs in upstream platform init (see
  * the TODO in Zephyr's eth_nxp_enet_qos.c).
