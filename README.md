@@ -49,6 +49,9 @@ driven entirely by Kconfig + devicetree, so a board change never edits `.c`.
   lib/iotconnect.c                 lifecycle orchestrator
   lib/zephyr-layer/*.{c,h}         Zephyr transport seam
   samples/telemetry/               reference app (FRDM-MCXN947 first target)
+  samples/quickstart/              flash-and-provision app (on-device keygen, NVS identity)
+  samples/c2d-led/                 cloud-to-device LED control
+  samples/click-telemetry/         MikroE Click sensor auto-detect telemetry
   docs/porting-new-board.md        consolidation / new-board guide
 ```
 

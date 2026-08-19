@@ -1,0 +1,37 @@
+/*
+ * FRDM-MCXN947 Ethernet enablement for the IOTCONNECT telemetry sample.
+ *
+ * The MCXN947 SoC has an ENET-QoS MAC; the FRDM board wires it (RMII) to an
+ * onboard Microchip LAN8741 PHY + RJ45. Zephyr leaves enet_mac/enet_mdio
+ * disabled by default, so this overlay turns them on, applies the ENET pinmux,
+ * and declares the PHY at MDIO address 0. Modeled on the NXP MCX-Nx4x EVK
+ * (same SoC family), which uses the generic "ethernet-phy" driver over RMII.
+ *
+ * NOTE: there are known open Zephyr issues with MDIO/PHY bring-up on NXP MCXN
+ * ENET-QoS (zephyrproject-rtos/zephyr #92695, #94300). If the PHY link never
+ * comes up at runtime, that driver gap -- not this overlay -- is the suspect;
+ * verify the PHY MDIO address against board UM12018 (default assumed: 0).
+ */
+
+&enet {
+	pinctrl-0 = <&pinmux_enet_qos>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&enet_mac {
+	status = "okay";
+	phy-connection-type = "rmii";
+	zephyr,random-mac-address;
+	phy-handle = <&phy>;
+};
+
+&enet_mdio {
+	status = "okay";
+
+	phy: ethernet-phy@0 {
+		compatible = "ethernet-phy";
+		reg = <0>;
+		status = "okay";
+	};
+};

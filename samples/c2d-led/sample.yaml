@@ -1,0 +1,16 @@
+sample:
+  name: IOTCONNECT C2D LED
+  description: >
+    Drives the board LED (alias led0) from IOTCONNECT cloud-to-device
+    commands (led-on / led-off / led-toggle), ACKs every command, and
+    reports the LED state back as periodic telemetry.
+common:
+  tags: iotconnect mqtt tls net sample
+  harness: net
+tests:
+  sample.iotconnect.c2d_led:
+    platform_allow:
+      - frdm_mcxn947/mcxn947/cpu0
+    build_only: true
+    integration_platforms:
+      - frdm_mcxn947/mcxn947/cpu0

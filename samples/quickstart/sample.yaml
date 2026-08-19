@@ -1,0 +1,17 @@
+sample:
+  name: IOTCONNECT Quickstart
+  description: >
+    Flash-and-provision binary: no credentials baked in. The device generates
+    its own key and self-signed certificate on-chip (iotcprov provision),
+    takes cpid/env/duid from a pasted iotcDeviceConfig.json (iotc config),
+    persists the identity in NVS, and connects to IOTCONNECT on reboot.
+common:
+  tags: iotconnect mqtt tls net provisioning sample
+  harness: net
+tests:
+  sample.iotconnect.quickstart:
+    platform_allow:
+      - frdm_mcxn947/mcxn947/cpu0
+    build_only: true
+    integration_platforms:
+      - frdm_mcxn947/mcxn947/cpu0

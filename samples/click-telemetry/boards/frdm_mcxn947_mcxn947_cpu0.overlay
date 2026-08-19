@@ -1,0 +1,40 @@
+/*
+ * FRDM-MCXN947 overlay for the Click telemetry demo:
+ *   - Ethernet (ENET-QoS + LAN8741) for IOTCONNECT connectivity.
+ *   - mikroBUS I2C (flexcomm3_lpi2c3) enabled for the shared Shuttle bus.
+ *
+ * All Clicks are read via raw I2C in the app (no Zephyr sensor drivers), so no
+ * per-Click DT nodes are needed here -- the app's registry probes each address.
+ * The MikroE Shuttle fans one mikroBUS socket out to 4 Click positions that
+ * SHARE this I2C bus, so the fitted Clicks must have distinct I2C addresses.
+ */
+
+/* ---- Ethernet (same as the telemetry demo) ---- */
+&enet {
+	pinctrl-0 = <&pinmux_enet_qos>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&enet_mac {
+	status = "okay";
+	phy-connection-type = "rmii";
+	zephyr,random-mac-address;
+	phy-handle = <&phy>;
+};
+
+&enet_mdio {
+	status = "okay";
+
+	phy: ethernet-phy@0 {
+		compatible = "ethernet-phy";
+		reg = <0>;
+		status = "okay";
+	};
+};
+
+/* ---- mikroBUS / Shuttle shared I2C bus ---- */
+&mikrobus_i2c {
+	status = "okay";
+	clock-frequency = <100000>;
+};

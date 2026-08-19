@@ -1,0 +1,17 @@
+sample:
+  name: IOTCONNECT Click Telemetry
+  description: >
+    Auto-detects MikroE Click sensor boards on a mikroBUS Shuttle at power-up
+    and publishes per-channel telemetry to IOTCONNECT. Boards with Zephyr
+    sensor drivers get full readings; others are reported present via a raw
+    I2C probe.
+common:
+  tags: iotconnect mqtt tls net sensors sample
+  harness: net
+tests:
+  sample.iotconnect.click_telemetry:
+    platform_allow:
+      - frdm_mcxn947/mcxn947/cpu0
+    build_only: true
+    integration_platforms:
+      - frdm_mcxn947/mcxn947/cpu0
