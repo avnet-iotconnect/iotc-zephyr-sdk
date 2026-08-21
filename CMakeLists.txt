@@ -49,6 +49,9 @@ if(CONFIG_IOTCONNECT)
   zephyr_library_sources_ifdef(CONFIG_IOTCONNECT_ONDEVICE_KEYGEN
     lib/zephyr-layer/iotc_provision.c
   )
+  zephyr_library_sources_ifdef(CONFIG_IOTCONNECT_WIFI_AUTOCONNECT
+    lib/zephyr-layer/iotc_wifi_autoconnect.c
+  )
   zephyr_library_sources_ifdef(CONFIG_IOTCONNECT_DEVICE_VITALS
     lib/zephyr-layer/iotc_device_vitals.c
   )

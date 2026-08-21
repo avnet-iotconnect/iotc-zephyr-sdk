@@ -197,6 +197,7 @@ protection needs ARM **TrustZone-M** (Cortex-M23/M33/M55) and a Zephyr **TF-M**
 |---|---|:---:|:---:|---|
 | **FRDM-MCXN947** | Cortex-M33 | ✅ `frdm_mcxn947/mcxn947/cpu0/ns` (**connect HW-verified end-to-end**) | EdgeLock (ELS) | **Hardware-backed** PSA Protected Storage (sealed at rest) |
 | FRDM-MCXW72 | Cortex-M33 | ⚠️ capable, no Zephyr TF-M variant yet | EdgeLock | pending upstream TF-M port |
+| FRDM-RW612 | Cortex-M33 | ⚠️ capable, no Zephyr TF-M variant yet | EdgeLock (ELS + PUF) | software only (NVS, **external** FlexSPI flash — note the key leaves the die) |
 | FRDM-i.MX93 (M33) | Cortex-M33 | ⚠️ capable | ELE | pending |
 | MIMXRT1170-EVKB | Cortex-M7 | ❌ no TrustZone-M | CAAM | software only (NVS) |
 | FRDM-MCXE31B | Cortex-M7 | ❌ | — | software only (UART source anyway) |

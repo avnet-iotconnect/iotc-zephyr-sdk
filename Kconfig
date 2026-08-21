@@ -119,6 +119,18 @@ config IOTCONNECT_SHELL
 	  base64 (paste-friendly over a serial console). `iotc cred show` / `clear`
 	  inspect and erase the stored identity.
 
+config IOTCONNECT_WIFI_AUTOCONNECT
+	bool "Connect to stored Wi-Fi networks at boot"
+	depends on WIFI_CREDENTIALS_CONNECT_STORED
+	help
+	  Bring the Wi-Fi bearer up automatically from credentials stored via the
+	  Zephyr `wifi cred` shell (wifi_credentials, settings-backed). A small
+	  thread issues NET_REQUEST_WIFI_CONNECT_STORED once the interface exists,
+	  retries until association succeeds, and re-runs if the link later drops.
+	  When the credential store is empty it prints the `wifi cred add` syntax
+	  on the console instead, so a stock binary can be provisioned onto any
+	  network at runtime -- no SSID or passphrase is compiled into the image.
+
 choice IOTCONNECT_CONNECTION_TYPE
 	prompt "Cloud connection type"
 	default IOTCONNECT_CT_AWS

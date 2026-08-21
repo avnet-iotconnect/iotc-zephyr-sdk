@@ -47,6 +47,10 @@ static void print_guide(const char *reason)
 	printk("  IOTCONNECT QUICKSTART -- device is not provisioned\n");
 	printk("  (%s)\n", reason);
 	printk("--------------------------------------------------------\n");
+#if defined(CONFIG_WIFI_CREDENTIALS)
+	printk("  0) Join Wi-Fi (stored in flash, survives reflash):\n");
+	printk("        wifi cred add -s \"<ssid>\" -k 1 -p \"<passphrase>\"\n");
+#endif
 	printk("  1) Generate this device's identity ON the device:\n");
 	printk("        iotcprov provision <your-duid>\n");
 	printk("  2) In IOTCONNECT: Create Device (Self-Signed) and paste\n");
@@ -113,10 +117,19 @@ int main(void)
 		LOG_ERR("network did not come up");
 		return 0;
 	}
-	ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER, CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
-	if (ret) {
-		LOG_ERR("SNTP sync failed (%d)", ret);
-		return 0;
+	/* On Wi-Fi bearers L4 can report up before association and DHCP have
+	 * settled; give SNTP a few tries before declaring failure. */
+	for (int attempt = 1;; attempt++) {
+		ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
+				     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
+		if (ret == 0) {
+			break;
+		}
+		if (attempt == 10) {
+			LOG_ERR("SNTP sync failed (%d)", ret);
+			return 0;
+		}
+		k_sleep(K_SECONDS(3));
 	}
 
 	IotConnectClientConfig config;

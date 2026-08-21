@@ -103,8 +103,20 @@ static void l4_event_handler(struct net_mgmt_event_callback *cb,
  * root CAs. That file defines: device_cert_pem, device_key_pem, broker_ca_pem
  * (Amazon Root CA 1 + Starfield G2), dra_ca_pem (GoDaddy Root G2).
  * It is git-ignored and must NOT be committed (contains the private key).
+ *
+ * The header is OPTIONAL: without it (a fresh clone, or a distributable
+ * binary) only the public CA roots are compiled in and the device identity
+ * must come from NVS at runtime (CONFIG_IOTCONNECT_IDENTITY_NVS + the
+ * iotcprov/iotc shell commands, as in the quickstart sample).
  */
+#if defined(__has_include) && __has_include("device_credentials.h")
 #include "device_credentials.h"
+#define HAVE_DEVICE_CREDENTIALS 1
+#else
+#include "iotconnect_ca_roots.h" /* public broker/DRA roots only */
+static const char device_cert_pem[] = "";
+static const char device_key_pem[] = "";
+#endif
 
 /* ---------------------------------------------------------------------------
  * SDK callbacks
@@ -275,11 +287,19 @@ int main(void)
 
 	/* 2. Sync wall-clock before any TLS handshake (mbedTLS checks cert
 	 * validity against time()). */
-	ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
-			     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
-	if (ret) {
-		LOG_ERR("SNTP time sync failed (%d); TLS will likely fail", ret);
-		return ret;
+	/* On Wi-Fi bearers L4 can report up before association and DHCP have
+	 * settled; give SNTP a few tries before declaring failure. */
+	for (int attempt = 1;; attempt++) {
+		ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
+				     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
+		if (ret == 0) {
+			break;
+		}
+		if (attempt == 10) {
+			LOG_ERR("SNTP time sync failed (%d); TLS will likely fail", ret);
+			return ret;
+		}
+		k_sleep(K_SECONDS(3));
 	}
 	LOG_INF("Wall-clock synced (epoch=%lld)", (long long)iotc_time_now());
 
@@ -331,6 +351,16 @@ int main(void)
 		config.auth_info.data.cert_info.device_cert_len = sizeof(device_cert_pem);
 		config.auth_info.data.cert_info.device_key = device_key_pem;
 		config.auth_info.data.cert_info.device_key_len = sizeof(device_key_pem);
+	}
+
+	/* Neither NVS identity nor compiled-in credentials: stay at the shell so
+	 * the device can be provisioned (iotcprov provision <duid>, iotc config,
+	 * reboot) -- same flow as the quickstart sample. */
+	if (config.auth_info.data.cert_info.device_cert_len <= 1) {
+		LOG_ERR("No device identity: provision at the shell, then reboot:");
+		LOG_ERR("  iotcprov provision <duid>   (register printed cert in IOTCONNECT)");
+		LOG_ERR("  iotc config                 (paste iotcDeviceConfig.json)");
+		return 0;
 	}
 
 	config.status_cb = on_connection_status;

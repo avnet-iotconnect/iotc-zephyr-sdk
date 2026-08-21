@@ -32,7 +32,21 @@
 #include "iotcl.h"
 #include "iotcl_c2d.h"
 #include "iotc_time.h"
-#include "device_credentials.h"   /* git-ignored; from the SDK sample's src/ */
+/* device_credentials.h (git-ignored, from the telemetry sample's src/) is
+ * OPTIONAL: without it only the public CA roots are compiled in and the
+ * device identity must come from NVS (CONFIG_IOTCONNECT_IDENTITY_NVS +
+ * the iotcprov/iotc shell commands, as in the quickstart sample). */
+#if defined(__has_include) && __has_include("device_credentials.h")
+#include "device_credentials.h"
+#define HAVE_DEVICE_CREDENTIALS 1
+#else
+#include "iotconnect_ca_roots.h" /* public broker/DRA roots only */
+static const char device_cert_pem[] = "";
+static const char device_key_pem[] = "";
+#endif
+#if defined(CONFIG_IOTCONNECT_IDENTITY_NVS)
+#include "iotconnect_identity.h"
+#endif
 
 LOG_MODULE_REGISTER(c2d_led, LOG_LEVEL_INF);
 
@@ -169,11 +183,19 @@ int main(void)
 		return 0;
 	}
 
-	ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
-			     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
-	if (ret) {
-		LOG_ERR("SNTP sync failed (%d); TLS will likely fail", ret);
-		return 0;
+	/* On Wi-Fi bearers L4 can report up before association and DHCP have
+	 * settled; give SNTP a few tries before declaring failure. */
+	for (int attempt = 1;; attempt++) {
+		ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
+				     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
+		if (ret == 0) {
+			break;
+		}
+		if (attempt == 10) {
+			LOG_ERR("SNTP sync failed (%d); TLS will likely fail", ret);
+			return 0;
+		}
+		k_sleep(K_SECONDS(3));
 	}
 
 	IotConnectClientConfig config;
@@ -193,10 +215,40 @@ int main(void)
 	config.auth_info.ca_cert_len = sizeof(broker_ca_pem);
 	config.auth_info.dra_ca = dra_ca_pem;
 	config.auth_info.dra_ca_len = sizeof(dra_ca_pem);
-	config.auth_info.data.cert_info.device_cert = device_cert_pem;
-	config.auth_info.data.cert_info.device_cert_len = sizeof(device_cert_pem);
-	config.auth_info.data.cert_info.device_key = device_key_pem;
-	config.auth_info.data.cert_info.device_key_len = sizeof(device_key_pem);
+
+#if defined(CONFIG_IOTCONNECT_IDENTITY_NVS)
+	/* Prefer identity provisioned into NVS (`iotcprov` / `iotc` shell);
+	 * fall back to compiled-in device_credentials.h when present. */
+	struct iotc_identity id;
+
+	if (iotc_identity_load(&id) == 0) {
+		LOG_INF("Using NVS-provisioned identity (duid=%s)", id.duid);
+		config.cpid = (char *)id.cpid;
+		config.env = (char *)id.env;
+		config.duid = (char *)id.duid;
+		config.auth_info.data.cert_info.device_cert = id.device_cert;
+		config.auth_info.data.cert_info.device_cert_len = id.device_cert_len;
+		config.auth_info.data.cert_info.device_key = id.device_key;
+		config.auth_info.data.cert_info.device_key_len = id.device_key_len;
+	} else
+#endif
+	{
+		LOG_INF("Using compiled-in device credentials");
+		config.auth_info.data.cert_info.device_cert = device_cert_pem;
+		config.auth_info.data.cert_info.device_cert_len = sizeof(device_cert_pem);
+		config.auth_info.data.cert_info.device_key = device_key_pem;
+		config.auth_info.data.cert_info.device_key_len = sizeof(device_key_pem);
+	}
+
+	/* Neither NVS identity nor compiled-in credentials: stay at the shell so
+	 * the device can be provisioned (iotcprov provision <duid>, iotc config,
+	 * reboot) -- same flow as the quickstart sample. */
+	if (config.auth_info.data.cert_info.device_cert_len <= 1) {
+		LOG_ERR("No device identity: provision at the shell, then reboot:");
+		LOG_ERR("  iotcprov provision <duid>   (register printed cert in IOTCONNECT)");
+		LOG_ERR("  iotc config                 (paste iotcDeviceConfig.json)");
+		return 0;
+	}
 
 	config.status_cb = on_connection_status;
 	config.cmd_cb = on_command;
