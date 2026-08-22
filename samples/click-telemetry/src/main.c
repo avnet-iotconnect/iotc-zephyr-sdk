@@ -452,12 +452,25 @@ static struct click clicks[] = {
 	{ "IO1 Xplained Pro", "AT30TSE758",       "io1",             0x4F, read_io1_temp,      true,  false },
 };
 
-/* Best-effort I2C presence probe (ACK on a 1-byte read). */
+/* I2C presence probe: address-only (zero-length) write, the same transaction
+ * Zephyr's `i2c scan` uses. Probing with a read misses parts that NACK a
+ * bare read -- TE's MS56xx/MS86xx ADC family (Altitude 2, PHT) and the VAV
+ * Press sensor all do. Controllers that cannot issue zero-length transfers
+ * fall back to the read probe. */
 static bool i2c_present(uint16_t addr)
 {
 	uint8_t b;
+	struct i2c_msg msg = {
+		.buf = &b,
+		.len = 0,
+		.flags = I2C_MSG_WRITE | I2C_MSG_STOP,
+	};
+	int ret = i2c_transfer(i2c_bus, &msg, 1, addr);
 
-	return i2c_read(i2c_bus, &b, 1, addr) == 0;
+	if (ret == -ENOTSUP) {
+		return i2c_read(i2c_bus, &b, 1, addr) == 0;
+	}
+	return ret == 0;
 }
 
 static void detect_clicks(void)
