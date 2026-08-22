@@ -14,7 +14,7 @@ twister-out*/
 *.lst
 
 # --- Secrets: per-device TLS credentials ---
-# device_credentials.h is GENERATED (creds/gen_creds_header.py) and contains the
+# device_credentials.h is GENERATED (tools/gen_device_credentials.py) and contains the
 # device PRIVATE KEY -- NEVER commit it. quickstart_credentials.h (public CA
 # roots only) is safe and IS committed.
 device_credentials.h
