@@ -263,27 +263,23 @@ static bool read_ultralowpress(const struct device *bus, uint16_t addr,
 	return true;
 }
 
-/* ---------------- VAV Press @0x5C ---------------------------------------- *
- * reset 0x11 -> start conversion 0x20 once; then read 4B.
- * P = 2sComp(word)/1200 ; T = (2sComp(word)-105)/72 + 23.1.                  */
-static bool vav_init;
+/* ---------------- VAV Press @0x5C (TE LMIS025BB3) ------------------------- *
+ * start conversion 0x21 before EVERY read -> wait ~100 ms -> read 4B
+ * little-endian words. P = 2sComp(word)/1200 Pa ;
+ * T = (2sComp(word)-105)/72 + 23.1 C. (MikroE vavpress driver sequence.)
+ * The LMIS clock-stretches a read it has no data for -- indefinitely, which
+ * hangs the I2C controller -- so never read this part without a preceding
+ * conversion command. */
 static bool read_vavpress(const struct device *bus, uint16_t addr,
 			  IotclMessageHandle msg, const char *ns)
 {
+	uint8_t cmd = 0x21; /* start pressure conversion */
 	uint8_t r[4] = {0};
 
-	if (!vav_init) {
-		uint8_t cmd = 0x11; /* reset firmware */
-
-		if (i2c_write(bus, &cmd, 1, addr) != 0) {
-			return false;
-		}
-		k_msleep(10);
-		cmd = 0x20; /* start pressure conversion */
-		(void)i2c_write(bus, &cmd, 1, addr);
-		k_msleep(10);
-		vav_init = true;
+	if (i2c_write(bus, &cmd, 1, addr) != 0) {
+		return false;
 	}
+	k_msleep(100);
 	if (i2c_read(bus, r, sizeof(r), addr) != 0) {
 		return false;
 	}
