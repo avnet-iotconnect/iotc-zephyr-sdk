@@ -430,22 +430,24 @@ struct click {
 	const char *part;
 	const char *ns;   /* telemetry key namespace */
 	uint16_t addr;    /* primary I2C probe address */
+	uint16_t alt_addr; /* alternate address (0 = none); addr is updated to
+			    * whichever one ACKed at detect time */
 	click_read_fn read;
 	bool enabled;     /* included in auto-detect */
 	bool present;
 };
 
 static struct click clicks[] = {
-	{ "Temp&Hum 14",     "TE HTU31D",         "temp_hum_14",     0x40, read_temphum14,     true,  false },
-	{ "Altitude 2",      "TE MS5607",         "altitude_2",      0x76, read_altitude2,     true,  false },
-	{ "Altitude 4",      "baro (0xAC)",       "altitude_4",      0x27, read_altitude4,     true,  false },
-	{ "Ultra-Low Press", "diff-press (0x6C)", "ultra_low_press", 0x6C, read_ultralowpress, true,  false },
-	{ "VAV Press",       "diff-press (0x5C)", "vav_press",       0x5C, read_vavpress,      true,  false },
-	{ "Air quality 7",   "MiCS-VZ-89TE",      "air_quality_7",   0x70, read_airquality7,   true,  false },
-	{ "T6713 CO2",       "Amphenol T6713",    "t6713",           0x15, read_t6713,         true,  false },
-	{ "T9602",           "Amphenol T9602",    "t9602",           0x28, read_t9602,         true,  false },
-	{ "PHT",             "TE MS8607",         "pht",             0x40, read_pht,           false, false },
-	{ "IO1 Xplained Pro", "AT30TSE758",       "io1",             0x4F, read_io1_temp,      true,  false },
+	{ "Temp&Hum 14",     "TE HTU31D",         "temp_hum_14",     0x40, 0x00, read_temphum14,     true,  false },
+	{ "Altitude 2",      "TE MS5607",         "altitude_2",      0x76, 0x77, read_altitude2,     true,  false },
+	{ "Altitude 4",      "baro (0xAC)",       "altitude_4",      0x27, 0x00, read_altitude4,     true,  false },
+	{ "Ultra-Low Press", "diff-press (0x6C)", "ultra_low_press", 0x6C, 0x00, read_ultralowpress, true,  false },
+	{ "VAV Press",       "diff-press (0x5C)", "vav_press",       0x5C, 0x00, read_vavpress,      true,  false },
+	{ "Air quality 7",   "MiCS-VZ-89TE",      "air_quality_7",   0x70, 0x00, read_airquality7,   true,  false },
+	{ "T6713 CO2",       "Amphenol T6713",    "t6713",           0x15, 0x00, read_t6713,         true,  false },
+	{ "T9602",           "Amphenol T9602",    "t9602",           0x28, 0x00, read_t9602,         true,  false },
+	{ "PHT",             "TE MS8607",         "pht",             0x40, 0x00, read_pht,           false, false },
+	{ "IO1 Xplained Pro", "AT30TSE758",       "io1",             0x4F, 0x00, read_io1_temp,      true,  false },
 };
 
 /* I2C presence probe: address-only (zero-length) write, the same transaction
@@ -476,6 +478,12 @@ static void detect_clicks(void)
 		struct click *c = &clicks[i];
 
 		c->present = c->enabled && i2c_present(c->addr);
+		if (!c->present && c->enabled && c->alt_addr != 0 &&
+		    i2c_present(c->alt_addr)) {
+			/* e.g. MS5607 CSB strap: 0x76 or 0x77 by jumper */
+			c->addr = c->alt_addr;
+			c->present = true;
+		}
 		LOG_INF("  [%s] %-16s 0x%02X  %s",
 			c->present ? "RECOGNIZED" : "  absent  ",
 			c->name, c->addr, c->part);
