@@ -50,15 +50,24 @@
 #if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
 #include "iotconnect_vitals.h"
 #endif
-#if defined(CONFIG_BUILD_WITH_TFM)
-/* TF-M /ns build: the device key is sealed in TF-M Protected Storage (loaded at
- * runtime via iotc_identity_load), so the binary carries only the PUBLIC CA
- * roots -- never a private key. */
+#if defined(CONFIG_IOTCONNECT_IDENTITY_NVS)
+/* Runtime identity build: the device key lives in TF-M Protected Storage
+ * (/ns builds) or NVS, loaded via iotc_identity_load, so the binary carries
+ * only the PUBLIC CA roots -- never a private key. */
 #include "iotconnect_identity.h"
 #include "quickstart_credentials.h"
 #else
-/* Non-TF-M build: identity is baked into the (gitignored) creds header. */
+/* Compiled-identity build: identity is baked into the (gitignored) creds
+ * header when present; without it only the public CA roots are compiled in
+ * and the device cannot connect until rebuilt with credentials (or with
+ * CONFIG_IOTCONNECT_IDENTITY_NVS for runtime provisioning). */
+#if defined(__has_include) && __has_include("device_credentials.h")
 #include "device_credentials.h"
+#else
+#include "iotconnect_ca_roots.h" /* public broker/DRA roots only */
+static const char device_cert_pem[] = "";
+static const char device_key_pem[] = "";
+#endif
 #endif
 
 LOG_MODULE_REGISTER(click_telemetry, LOG_LEVEL_INF);
@@ -629,11 +638,19 @@ int main(void)
 	if (network_up() != 0) {
 		return 0;
 	}
-	ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
-			     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
-	if (ret) {
-		LOG_ERR("SNTP sync failed (%d)", ret);
-		return 0;
+	/* On Wi-Fi bearers L4 can report up before association and DHCP have
+	 * settled; give SNTP a few tries before declaring failure. */
+	for (int attempt = 1;; attempt++) {
+		ret = iotc_time_sync(CONFIG_IOTCONNECT_SNTP_SERVER,
+				     CONFIG_IOTCONNECT_SNTP_TIMEOUT_MS);
+		if (ret == 0) {
+			break;
+		}
+		if (attempt == 10) {
+			LOG_ERR("SNTP sync failed (%d)", ret);
+			return 0;
+		}
+		k_sleep(K_SECONDS(3));
 	}
 
 	IotConnectClientConfig config;
@@ -644,11 +661,11 @@ int main(void)
 #elif defined(CONFIG_IOTCONNECT_CT_AZURE)
 	config.connection_type = IOTC_CT_AZURE;
 #endif
-#if defined(CONFIG_BUILD_WITH_TFM)
-	/* Identity (cpid/env/duid + device cert/key) comes from the TF-M-sealed
-	 * blob in Protected Storage; provision it once with the quickstart flow
-	 * (iotcprov provision <duid> + iotc config). Only the public CA roots are
-	 * compiled in. */
+#if defined(CONFIG_IOTCONNECT_IDENTITY_NVS)
+	/* Identity (cpid/env/duid + device cert/key) comes from the stored
+	 * identity -- TF-M Protected Storage on /ns builds, NVS otherwise;
+	 * provision it once with the quickstart flow (iotcprov provision <duid>
+	 * + iotc config). Only the public CA roots are compiled in. */
 	struct iotc_identity id;
 
 	if (iotc_identity_load(&id) != 0) {
@@ -682,6 +699,13 @@ int main(void)
 	config.auth_info.data.cert_info.device_cert_len = sizeof(device_cert_pem);
 	config.auth_info.data.cert_info.device_key = device_key_pem;
 	config.auth_info.data.cert_info.device_key_len = sizeof(device_key_pem);
+
+	/* Built without a credentials header: nothing to authenticate with. */
+	if (config.auth_info.data.cert_info.device_cert_len <= 1) {
+		LOG_ERR("No device identity compiled in; rebuild with "
+			"device_credentials.h or CONFIG_IOTCONNECT_IDENTITY_NVS");
+		return 0;
+	}
 #endif
 	config.cmd_cb = on_command;
 	config.verbose = true;
