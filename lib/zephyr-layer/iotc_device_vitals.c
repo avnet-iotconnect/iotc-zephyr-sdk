@@ -50,6 +50,15 @@ extern struct k_heap _system_heap;   /* Zephyr system heap (k_malloc/k_free) */
 #define IOTC_VITALS_FW "0.0.0"
 #endif
 
+/* Under MCUboot, report the RUNNING image's signed version instead of the
+ * static Kconfig string, so an OTA update is visible in telemetry. */
+#if defined(CONFIG_IOTCONNECT_OTA_MCUBOOT)
+#include <zephyr/dfu/mcuboot.h>
+#include <zephyr/storage/flash_map.h>
+#include <stdio.h>
+#endif
+static char s_fw_ver[24] = IOTC_VITALS_FW;
+
 #if defined(CONFIG_SCHED_THREAD_USAGE)
 static uint64_t s_last_exec;   /* total (idle + non-idle) cycles at last sample */
 static uint64_t s_last_busy;   /* non-idle cycles at last sample */
@@ -85,6 +94,20 @@ static int iotc_vitals_init(void)
 			s_reset_cause = "other";
 		} else {
 			s_reset_cause = "none";
+		}
+	}
+#endif
+#if defined(CONFIG_IOTCONNECT_OTA_MCUBOOT)
+	{
+		struct mcuboot_img_header hdr;
+
+		if (boot_read_bank_header(FIXED_PARTITION_ID(slot0_partition),
+					  &hdr, sizeof(hdr)) == 0 &&
+		    hdr.mcuboot_version == 1) {
+			(void)snprintf(s_fw_ver, sizeof(s_fw_ver), "%u.%u.%u",
+				       (unsigned)hdr.h.v1.sem_ver.major,
+				       (unsigned)hdr.h.v1.sem_ver.minor,
+				       (unsigned)hdr.h.v1.sem_ver.revision);
 		}
 	}
 #endif
@@ -162,5 +185,5 @@ void iotc_vitals_append(IotclMessageHandle msg)
 #endif
 
 	/* Firmware version. */
-	iotcl_telemetry_set_string(msg, "sys.fw", IOTC_VITALS_FW);
+	iotcl_telemetry_set_string(msg, "sys.fw", s_fw_ver);
 }
