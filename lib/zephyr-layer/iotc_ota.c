@@ -47,6 +47,8 @@ LOG_MODULE_REGISTER(iotc_ota, CONFIG_IOTCONNECT_LOG_LEVEL);
 static char pending_ack[128];
 static bool have_pending_ack;
 
+static void ota_run(const char *url, const char *host, const char *ack);
+
 static struct flash_img_context flash_ctx;
 static bool download_failed;
 static size_t downloaded;
@@ -87,6 +89,9 @@ static int ota_body_cb(struct http_response *rsp,
 		return 0;
 	}
 	if (rsp->body_frag_len > 0 && !download_failed) {
+		if (downloaded == 0) {
+			LOG_INF("OTA: downloading (HTTP %d)", rsp->http_status_code);
+		}
 		bool flush = (final == HTTP_DATA_FINAL);
 
 		if (flash_img_buffered_write(&flash_ctx, rsp->body_frag_start,
@@ -132,6 +137,7 @@ static int ota_download(const char *url, const char *hostname)
 		LOG_ERR("OTA host resolve failed (%d)", ret);
 		return -EIO;
 	}
+	LOG_INF("OTA: host resolved");
 	sock = zsock_socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
 	if (sock < 0) {
 		ret = -errno;
@@ -150,6 +156,7 @@ static int ota_download(const char *url, const char *hostname)
 		LOG_ERR("OTA TLS connect failed (%d)", ret);
 		goto out;
 	}
+	LOG_INF("OTA: TLS session up");
 
 	download_failed = false;
 	downloaded = 0;
@@ -188,22 +195,79 @@ out:
 
 /* ---- public API ---------------------------------------------------------- */
 
+/* The download runs on its own thread: doing it inside the MQTT receive
+ * callback would starve the MQTT keepalive for the whole transfer. Event
+ * strings are owned by the event -- copy them before the callback returns. */
+static char *job_url;
+static char *job_host;
+static char *job_ack;
+static K_SEM_DEFINE(job_sem, 0, 1);
+static atomic_t job_busy;
+
+static char *ota_strdup(const char *s)
+{
+	if (s == NULL) {
+		return NULL;
+	}
+	char *d = malloc(strlen(s) + 1);
+
+	if (d != NULL) {
+		strcpy(d, s);
+	}
+	return d;
+}
+
 void iotc_ota_handle(IotclC2dEventData data)
 {
 	const char *url = iotcl_c2d_get_ota_url(data, 0);
 	const char *host = iotcl_c2d_get_ota_url_hostname(data, 0);
 	const char *ack = iotcl_c2d_get_ack_id(data);
-	int ret;
 
 	if (url == NULL || host == NULL) {
 		LOG_ERR("OTA event carries no URL");
 		return;
 	}
-	LOG_INF("OTA requested: %s", url);
+	/* The platform can deliver the same OTA event more than once; the job
+	 * strings belong to the worker while it runs. */
+	if (!atomic_cas(&job_busy, 0, 1)) {
+		LOG_WRN("OTA already in progress; ignoring duplicate event");
+		return;
+	}
+	free(job_url);
+	free(job_host);
+	free(job_ack);
+	job_url = ota_strdup(url);
+	job_host = ota_strdup(host);
+	job_ack = ota_strdup(ack);
+	if (job_url == NULL || job_host == NULL) {
+		LOG_ERR("OTA job alloc failed");
+		return;
+	}
+	LOG_INF("OTA requested from host %s", job_host);
 	if (ack != NULL) {
 		(void)iotcl_mqtt_send_ota_ack(ack, IOTCL_C2D_EVT_OTA_DOWNLOADING,
 					      "downloading");
 	}
+	k_sem_give(&job_sem);
+}
+
+static void ota_worker(void *a, void *b, void *c)
+{
+	ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+
+	for (;;) {
+		k_sem_take(&job_sem, K_FOREVER);
+		ota_run(job_url, job_host, job_ack);
+		atomic_set(&job_busy, 0);
+	}
+}
+
+K_THREAD_DEFINE(iotc_ota_thread, 6144, ota_worker, NULL, NULL, NULL,
+		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
+
+static void ota_run(const char *url, const char *host, const char *ack)
+{
+	int ret;
 
 	ret = ota_download(url, host);
 	if (ret != 0) {

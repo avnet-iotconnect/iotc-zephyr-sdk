@@ -13,17 +13,29 @@
 #endif
 
 /*
- * Asymmetric TLS record buffers for the RAM-tight TF-M non-secure partition.
- * The INBOUND buffer stays at the Kconfig CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN so
- * it can hold the server's Certificate flight. OUTBOUND handshake messages
- * (ClientHello, ClientKeyExchange, Finished -- the DRA handshake is server-auth
- * so there is no client cert) are all < 2 KB, so shrinking the out buffer
- * reclaims ~6 KB of RAM to enlarge the network RX pool -- needed so the
- * multi-segment server certificate is not dropped on a busy LAN, which stalls
- * the handshake into a connect() timeout.
+ * Asymmetric TLS record buffers.
+ *
+ * OUTBOUND records we produce are small (MQTT publishes, HTTP GET, handshake
+ * messages incl. the device certificate -- all well under 4 KB), and a TLS
+ * sender may always fragment, so a reduced out buffer is safe and reclaims
+ * RAM on every target.
+ *
+ * INBOUND is different: peers choose the record size, and AWS endpoints
+ * ignore the RFC 6066 max_fragment_length request Zephyr advertises. S3
+ * (OTA downloads) sends full 16384-byte records, which are FATAL to a
+ * session whose in buffer is smaller (mbedTLS aborts with
+ * MBEDTLS_ERR_SSL_BAD_INPUT_DATA, "requesting more data than fits").
+ * The inbound buffer must therefore stay at the full 16 KB except on the
+ * RAM-tight TF-M non-secure partition, which does not use HTTPS OTA and
+ * where MQTT/DRA records stay small.
  */
+#if defined(CONFIG_BUILD_WITH_TFM)
 #undef MBEDTLS_SSL_IN_CONTENT_LEN
 #define MBEDTLS_SSL_IN_CONTENT_LEN 8192
 #undef MBEDTLS_SSL_OUT_CONTENT_LEN
 #define MBEDTLS_SSL_OUT_CONTENT_LEN 2048
+#else
+#undef MBEDTLS_SSL_OUT_CONTENT_LEN
+#define MBEDTLS_SSL_OUT_CONTENT_LEN 4096
+#endif
 
