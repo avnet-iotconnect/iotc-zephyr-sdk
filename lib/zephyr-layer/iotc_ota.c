@@ -30,6 +30,7 @@
 #include <zephyr/sys/reboot.h>
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>
+#include <zephyr/storage/flash_map.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/http/client.h>
 #include <zephyr/net/tls_credentials.h>
@@ -217,14 +218,44 @@ static char *ota_strdup(const char *s)
 	return d;
 }
 
+/* "maj.min.rev" of the running MCUboot image, or "" if unreadable. */
+static void ota_running_version(char *buf, size_t len)
+{
+	struct mcuboot_img_header hdr;
+
+	buf[0] = '\0';
+	if (boot_read_bank_header(FIXED_PARTITION_ID(slot0_partition),
+				  &hdr, sizeof(hdr)) == 0 &&
+	    hdr.mcuboot_version == 1) {
+		snprintk(buf, len, "%u.%u.%u",
+			 (unsigned)hdr.h.v1.sem_ver.major,
+			 (unsigned)hdr.h.v1.sem_ver.minor,
+			 (unsigned)hdr.h.v1.sem_ver.revision);
+	}
+}
+
 void iotc_ota_handle(IotclC2dEventData data)
 {
 	const char *url = iotcl_c2d_get_ota_url(data, 0);
 	const char *host = iotcl_c2d_get_ota_url_hostname(data, 0);
 	const char *ack = iotcl_c2d_get_ack_id(data);
+	const char *sw = iotcl_c2d_get_ota_sw_version(data);
+	char running[24];
 
 	if (url == NULL || host == NULL) {
 		LOG_ERR("OTA event carries no URL");
+		return;
+	}
+	/* A push of the version already running (a duplicate delivery, or a
+	 * re-push after an unreported success) needs no download: report
+	 * success so the platform closes the job. */
+	ota_running_version(running, sizeof(running));
+	if (sw != NULL && running[0] != '\0' && strcmp(sw, running) == 0) {
+		LOG_INF("OTA version %s already running; reporting success", sw);
+		if (ack != NULL) {
+			(void)iotcl_mqtt_send_ota_ack(
+				ack, IOTCL_C2D_EVT_OTA_DOWNLOAD_DONE, NULL);
+		}
 		return;
 	}
 	/* The platform can deliver the same OTA event more than once; the job
@@ -299,6 +330,10 @@ static void ota_run(const char *url, const char *host, const char *ack)
 
 void iotc_ota_confirm_if_pending(void)
 {
+	/* The stored ack only reaches ota_settings_set() when this subtree is
+	 * loaded -- the application may never run a global settings_load(). */
+	(void)settings_load_subtree("iotc_ota");
+
 	if (!have_pending_ack) {
 		/* Still confirm a self-tested image (e.g. after a manual swap). */
 		if (!boot_is_img_confirmed()) {
