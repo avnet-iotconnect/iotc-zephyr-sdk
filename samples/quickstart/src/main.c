@@ -34,6 +34,9 @@
 #include "iotconnect_identity.h"
 #include "iotc_time.h"
 #include "quickstart_credentials.h"
+#if defined(CONFIG_IOTCONNECT_OTA_MCUBOOT)
+#include "iotconnect_ota.h"
+#endif
 #if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
 #include "iotconnect_vitals.h"
 #endif
@@ -149,6 +152,9 @@ int main(void)
 	config.auth_info.data.cert_info.device_key = id.device_key;       /* from NVS */
 	config.auth_info.data.cert_info.device_key_len = id.device_key_len;
 	config.verbose = true;
+#if defined(CONFIG_IOTCONNECT_OTA_MCUBOOT)
+	config.ota_cb = iotc_ota_handle;
+#endif
 
 	ret = iotconnect_sdk_init(&config);
 	if (ret) {
@@ -161,6 +167,11 @@ int main(void)
 			k_sleep(K_SECONDS(5));
 			continue;
 		}
+#if defined(CONFIG_IOTCONNECT_OTA_MCUBOOT)
+		/* Running post-OTA? Make the new image permanent and complete
+		 * the persisted ack (or report a revert from the old image). */
+		iotc_ota_confirm_if_pending();
+#endif
 		while (iotconnect_sdk_is_connected()) {
 			IotclMessageHandle msg = iotcl_telemetry_create();
 

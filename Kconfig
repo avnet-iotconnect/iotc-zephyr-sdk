@@ -131,6 +131,38 @@ config IOTCONNECT_WIFI_AUTOCONNECT
 	  on the console instead, so a stock binary can be provisioned onto any
 	  network at runtime -- no SSID or passphrase is compiled into the image.
 
+config IOTCONNECT_OTA_MCUBOOT
+	bool "OTA firmware updates into the MCUboot secondary slot"
+	depends on BOOTLOADER_MCUBOOT
+	default y
+	select IMG_MANAGER
+	select STREAM_FLASH
+	select IMG_ERASE_PROGRESSIVELY
+	select HTTP_CLIENT
+	select REBOOT
+	help
+	  Handle IOTCONNECT OTA events: download the MCUboot-signed image over
+	  HTTPS into the secondary slot, persist the OTA ack across the reboot,
+	  request a TEST swap, and confirm (or report a revert) from the new
+	  firmware once it reconnects. The application routes events with
+	  config.ota_cb = iotc_ota_handle and calls
+	  iotc_ota_confirm_if_pending() after connecting.
+
+if IOTCONNECT_OTA_MCUBOOT
+
+config IOTCONNECT_OTA_HTTP_RECV_BUF_SIZE
+	int "OTA HTTP receive buffer size"
+	default 2048
+
+config IOTCONNECT_OTA_HTTP_TIMEOUT_MS
+	int "OTA HTTP request timeout (ms)"
+	default 300000
+	help
+	  Overall timeout for the firmware download request. Images are on the
+	  order of a megabyte; allow for slow links.
+
+endif # IOTCONNECT_OTA_MCUBOOT
+
 choice IOTCONNECT_CONNECTION_TYPE
 	prompt "Cloud connection type"
 	default IOTCONNECT_CT_AWS
