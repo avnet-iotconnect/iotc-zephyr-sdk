@@ -35,6 +35,11 @@ LOG_MODULE_REGISTER(iotc_identity, CONFIG_IOTCONNECT_LOG_LEVEL);
 static char s_cpid[64];
 static char s_env[32];
 static char s_duid[128];
+/* Discovery host from iotcDeviceConfig.json's "disc" field (bare hostname, no
+ * scheme). Optional: instances differ (awsdiscovery.iotconnect.io for the POC
+ * cluster, discovery.iotconnect.io for production accounts), so the JSON's
+ * value overrides the build-time default at runtime. Empty = use Kconfig. */
+static char s_disc[64];
 /* Buffers sized for the on-device EC P-256 identity (cert ~454 B, key ~228 B).
  * On the RAM-tight TF-M non-secure partition these are deliberately small; the
  * non-TF-M (settings/NVS) builds have more RAM headroom but reuse the same
@@ -96,7 +101,8 @@ static int ps_pack_store(void)
 		 blob_append(&off, s_env, strlen(s_env)) ||
 		 blob_append(&off, s_duid, strlen(s_duid)) ||
 		 blob_append(&off, s_cert, s_cert_len) ||
-		 blob_append(&off, s_key, s_key_len);
+		 blob_append(&off, s_key, s_key_len) ||
+		 blob_append(&off, s_disc, strlen(s_disc));
 	psa_status_t st;
 
 	if (rc) {
@@ -130,6 +136,8 @@ int iotc_kv_save(const char *name, const void *data, size_t len)
 		len = MIN(len, sizeof(s_cert)); memmove(s_cert, data, len); s_cert_len = len;
 	} else if (!strcmp(name, "key")) {
 		len = MIN(len, sizeof(s_key)); memmove(s_key, data, len); s_key_len = len;
+	} else if (!strcmp(name, "disc")) {
+		len = MIN(len, sizeof(s_disc) - 1); memmove(s_disc, data, len); s_disc[len] = '\0';
 	} else {
 		return -EINVAL;
 	}
@@ -185,6 +193,12 @@ int iotc_identity_load(struct iotc_identity *id)
 	s_duid[n] = '\0';
 	if (blob_take(&off, got, s_cert, sizeof(s_cert), &s_cert_len)) { return -ENOENT; }
 	if (blob_take(&off, got, s_key, sizeof(s_key), &s_key_len)) { return -ENOENT; }
+	/* disc was appended later; blobs from older firmware end here. */
+	if (off < got) {
+		if (blob_take(&off, got, s_disc, sizeof(s_disc) - 1, &n) == 0) {
+			s_disc[n] = '\0';
+		}
+	}
 
 	if (s_duid[0] == '\0' || s_cpid[0] == '\0' || s_env[0] == '\0' ||
 	    s_cert_len == 0 || s_key_len == 0) {
@@ -273,7 +287,8 @@ static int disk_pack_store(void)
 		 disk_put(&off, s_env, strlen(s_env)) ||
 		 disk_put(&off, s_duid, strlen(s_duid)) ||
 		 disk_put(&off, s_cert, s_cert_len) ||
-		 disk_put(&off, s_key, s_key_len);
+		 disk_put(&off, s_key, s_key_len) ||
+		 disk_put(&off, s_disc, strlen(s_disc));
 
 	if (rc) {
 		printk("[iotc] identity too large for the disk region\n");
@@ -310,6 +325,8 @@ int iotc_kv_save(const char *name, const void *data, size_t len)
 		len = MIN(len, sizeof(s_cert)); memmove(s_cert, data, len); s_cert_len = len;
 	} else if (!strcmp(name, "key")) {
 		len = MIN(len, sizeof(s_key)); memmove(s_key, data, len); s_key_len = len;
+	} else if (!strcmp(name, "disc")) {
+		len = MIN(len, sizeof(s_disc) - 1); memmove(s_disc, data, len); s_disc[len] = '\0';
 	} else {
 		return -EINVAL;
 	}
@@ -381,6 +398,14 @@ int iotc_identity_load(struct iotc_identity *id)
 	IOTC_DISK_TAKE(s_duid, sizeof(s_duid) - 1); s_duid[n] = '\0';
 	IOTC_DISK_TAKE(s_cert, sizeof(s_cert));     s_cert_len = n;
 	IOTC_DISK_TAKE(s_key, sizeof(s_key));       s_key_len = n;
+	/* disc was appended later; regions written by older firmware end here. */
+	if (off + 2 <= plen) {
+		n = (size_t)(p[off] | (p[off + 1] << 8)); off += 2;
+		if (off + n <= plen && n < sizeof(s_disc)) {
+			memcpy(s_disc, &p[off], n);
+			s_disc[n] = '\0';
+		}
+	}
 #undef IOTC_DISK_TAKE
 
 	if (s_duid[0] == '\0' || s_cpid[0] == '\0' || s_env[0] == '\0' ||
@@ -460,6 +485,9 @@ static int iotc_settings_set(const char *name, size_t len, settings_read_cb read
 	if (settings_name_steq(name, "duid", &next) && !next) {
 		return load_str(read_cb, cb_arg, s_duid, sizeof(s_duid), len);
 	}
+	if (settings_name_steq(name, "disc", &next) && !next) {
+		return load_str(read_cb, cb_arg, s_disc, sizeof(s_disc), len);
+	}
 	if (settings_name_steq(name, "cert", &next) && !next) {
 		return load_blob(read_cb, cb_arg, s_cert, sizeof(s_cert), &s_cert_len, len);
 	}
@@ -505,6 +533,13 @@ int iotc_identity_load(struct iotc_identity *id)
 #endif /* CONFIG_BUILD_WITH_TFM */
 
 /* --- provisioning shell (iotc cred ...) ----------------------------------- */
+
+/* Discovery host stored from iotcDeviceConfig.json (any backend), or NULL
+ * when none was provisioned (callers fall back to the build-time default). */
+const char *iotc_identity_discovery_host(void)
+{
+	return s_disc[0] != '\0' ? s_disc : NULL;
+}
 
 #ifdef CONFIG_IOTCONNECT_SHELL
 
@@ -644,6 +679,8 @@ static int cmd_clear(const struct shell *sh, size_t argc, char **argv)
 	kv_delete("duid");
 	kv_delete("cert");
 	kv_delete("key");
+	kv_delete("disc");
+	memset(s_disc, 0, sizeof(s_disc));
 	memset(s_cpid, 0, sizeof(s_cpid));
 	memset(s_env, 0, sizeof(s_env));
 	memset(s_duid, 0, sizeof(s_duid));
@@ -746,16 +783,37 @@ static void config_apply(const struct shell *sh, const char *json)
 	if (cJSON_IsString(uid)) {
 		store_field("duid", uid->valuestring, s_duid, sizeof(s_duid));
 	}
+	if (cJSON_IsString(disc)) {
+		/* The JSON carries a URL; the DRA layer wants a bare hostname.
+		 * IOTCONNECT instances use different discovery hosts, so the
+		 * provisioned value overrides the build-time default. */
+		const char *host = disc->valuestring;
+		size_t hlen;
+
+		if (strncmp(host, "https://", 8) == 0) {
+			host += 8;
+		} else if (strncmp(host, "http://", 7) == 0) {
+			host += 7;
+		}
+		hlen = strcspn(host, "/");
+		if (hlen > 0) {
+			char tmp[64];
+
+			hlen = MIN(hlen, sizeof(tmp) - 1);
+			memcpy(tmp, host, hlen);
+			tmp[hlen] = '\0';
+			store_field("disc", tmp, s_disc, sizeof(s_disc));
+		}
+	}
 	shell_print(sh, "Stored from iotcDeviceConfig.json: cpid=%s env=%s duid=%s",
 		    s_cpid, s_env, s_duid);
-	shell_print(sh, "Cloud + discovery host are set at BUILD time -- verify they match:");
+	shell_print(sh, "Discovery host: %s%s",
+		    s_disc[0] != '\0' ? s_disc : CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST,
+		    s_disc[0] != '\0' ? " (from json, used at runtime)" : " (build default)");
 	if (cJSON_IsString(pf)) {
+		shell_print(sh, "Cloud backend is set at BUILD time -- verify it matches:");
 		shell_print(sh, "  json cloud=%s   build=%s", pf->valuestring,
 			    IS_ENABLED(CONFIG_IOTCONNECT_CT_AWS) ? "aws" : "azure");
-	}
-	if (cJSON_IsString(disc)) {
-		shell_print(sh, "  json disc =%s   build=%s", disc->valuestring,
-			    CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST);
 	}
 	cJSON_Delete(root);
 }

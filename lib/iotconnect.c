@@ -29,6 +29,9 @@
 #if defined(CONFIG_IOTCONNECT_DEVICE_VITALS)
 #include "iotconnect_vitals.h"
 #endif
+#if defined(CONFIG_IOTCONNECT_IDENTITY_NVS)
+#include "iotconnect_identity.h"
+#endif
 
 /* iotc-c-lib core */
 #include "iotcl.h"
@@ -286,12 +289,21 @@ int iotconnect_sdk_init(IotConnectClientConfig *c)
 	s_creds_registered = true;
 
 	/* Runtime broker discovery: resolves host/client_id/username/topics
-	 * into the library's MQTT config, read later via iotcl_mqtt_get_config(). */
+	 * into the library's MQTT config, read later via iotcl_mqtt_get_config().
+	 * A discovery host provisioned from iotcDeviceConfig.json overrides the
+	 * build-time default, so one binary serves any IOTCONNECT instance. */
+	const char *disc_host = NULL;
+
+#if defined(CONFIG_IOTCONNECT_IDENTITY_NVS)
+	disc_host = iotc_identity_discovery_host();
+#endif
 	iotc_dra_config_t dra = {
 		.platform = (s_config.connection_type == IOTC_CT_AZURE)
 				    ? IOTC_DRA_PF_AZURE
 				    : IOTC_DRA_PF_AWS,
-		.discovery_host = CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST,
+		.discovery_host = (disc_host != NULL)
+					  ? disc_host
+					  : CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST,
 		.cpid = s_config.cpid,
 		.env = s_config.env,
 		.duid = s_config.duid,

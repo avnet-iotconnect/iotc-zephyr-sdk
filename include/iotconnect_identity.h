@@ -67,6 +67,16 @@ int iotc_identity_load(struct iotc_identity *id);
  */
 int iotc_kv_save(const char *name, const void *data, size_t len);
 
+/*
+ * Discovery hostname provisioned from iotcDeviceConfig.json's "disc" field
+ * (via `iotc config`), or NULL if none is stored. IOTCONNECT instances use
+ * different discovery hosts (e.g. awsdiscovery.iotconnect.io for the AWS POC
+ * cluster, discovery.iotconnect.io for production accounts); a stored value
+ * overrides CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST at runtime so one binary
+ * serves any instance. The returned pointer is internal static storage.
+ */
+const char *iotc_identity_discovery_host(void);
+
 #ifdef __cplusplus
 }
 #endif
