@@ -25,6 +25,7 @@
 #endif
 
 #include "iotconnect_identity.h"
+#include "cJSON.h"
 
 LOG_MODULE_REGISTER(iotc_identity, CONFIG_IOTCONNECT_LOG_LEVEL);
 
@@ -541,6 +542,72 @@ const char *iotc_identity_discovery_host(void)
 	return s_disc[0] != '\0' ? s_disc : NULL;
 }
 
+static void identity_store_field(const char *key, const char *val,
+				 char *mirror, size_t mirror_sz)
+{
+	(void)iotc_kv_save(key, val, strlen(val));
+	strncpy(mirror, val, mirror_sz - 1);
+	mirror[mirror_sz - 1] = '\0';
+}
+
+/* Apply an iotcDeviceConfig.json block (cpid/env/duid/disc) to the identity
+ * store. Shared by the `iotc config` shell command and non-console
+ * provisioning transports (e.g. the Soft-AP web portal). */
+int iotc_identity_apply_config_json(const char *json)
+{
+	cJSON *root = cJSON_Parse(json);
+	const cJSON *cpid, *env, *uid, *disc;
+	int stored = 0;
+
+	if (root == NULL) {
+		return -EINVAL;
+	}
+	cpid = cJSON_GetObjectItemCaseSensitive(root, "cpid");
+	env = cJSON_GetObjectItemCaseSensitive(root, "env");
+	uid = cJSON_GetObjectItemCaseSensitive(root, "uid");
+	if (!cJSON_IsString(uid)) {
+		uid = cJSON_GetObjectItemCaseSensitive(root, "did");
+	}
+	disc = cJSON_GetObjectItemCaseSensitive(root, "disc");
+
+	if (cJSON_IsString(cpid)) {
+		identity_store_field("cpid", cpid->valuestring, s_cpid, sizeof(s_cpid));
+		stored++;
+	}
+	if (cJSON_IsString(env)) {
+		identity_store_field("env", env->valuestring, s_env, sizeof(s_env));
+		stored++;
+	}
+	if (cJSON_IsString(uid)) {
+		identity_store_field("duid", uid->valuestring, s_duid, sizeof(s_duid));
+		stored++;
+	}
+	if (cJSON_IsString(disc)) {
+		/* The JSON carries a URL; the DRA layer wants a bare hostname.
+		 * IOTCONNECT instances use different discovery hosts, so the
+		 * provisioned value overrides the build-time default. */
+		const char *host = disc->valuestring;
+		size_t hlen;
+
+		if (strncmp(host, "https://", 8) == 0) {
+			host += 8;
+		} else if (strncmp(host, "http://", 7) == 0) {
+			host += 7;
+		}
+		hlen = strcspn(host, "/");
+		if (hlen > 0) {
+			char tmp[64];
+
+			hlen = MIN(hlen, sizeof(tmp) - 1);
+			memcpy(tmp, host, hlen);
+			tmp[hlen] = '\0';
+			identity_store_field("disc", tmp, s_disc, sizeof(s_disc));
+		}
+	}
+	cJSON_Delete(root);
+	return stored > 0 ? 0 : -ENOENT;
+}
+
 #ifdef CONFIG_IOTCONNECT_SHELL
 
 #include <zephyr/shell/shell.h>
@@ -749,67 +816,27 @@ static size_t cfg_len;
 static int cfg_depth;
 static bool cfg_started;
 
-static void store_field(const char *key, const char *val, char *mirror, size_t mirror_sz)
-{
-	(void)iotc_kv_save(key, val, strlen(val));
-	strncpy(mirror, val, mirror_sz - 1);
-	mirror[mirror_sz - 1] = '\0';
-}
-
 static void config_apply(const struct shell *sh, const char *json)
 {
-	cJSON *root = cJSON_Parse(json);
-	const cJSON *cpid, *env, *uid, *pf, *disc;
+	cJSON *root;
+	const cJSON *pf;
+	int ret = iotc_identity_apply_config_json(json);
 
-	if (root == NULL) {
+	if (ret == -EINVAL) {
 		shell_error(sh, "invalid JSON");
 		return;
 	}
-	cpid = cJSON_GetObjectItemCaseSensitive(root, "cpid");
-	env = cJSON_GetObjectItemCaseSensitive(root, "env");
-	uid = cJSON_GetObjectItemCaseSensitive(root, "uid");
-	if (!cJSON_IsString(uid)) {
-		uid = cJSON_GetObjectItemCaseSensitive(root, "did");
-	}
-	pf = cJSON_GetObjectItemCaseSensitive(root, "pf");
-	disc = cJSON_GetObjectItemCaseSensitive(root, "disc");
-
-	if (cJSON_IsString(cpid)) {
-		store_field("cpid", cpid->valuestring, s_cpid, sizeof(s_cpid));
-	}
-	if (cJSON_IsString(env)) {
-		store_field("env", env->valuestring, s_env, sizeof(s_env));
-	}
-	if (cJSON_IsString(uid)) {
-		store_field("duid", uid->valuestring, s_duid, sizeof(s_duid));
-	}
-	if (cJSON_IsString(disc)) {
-		/* The JSON carries a URL; the DRA layer wants a bare hostname.
-		 * IOTCONNECT instances use different discovery hosts, so the
-		 * provisioned value overrides the build-time default. */
-		const char *host = disc->valuestring;
-		size_t hlen;
-
-		if (strncmp(host, "https://", 8) == 0) {
-			host += 8;
-		} else if (strncmp(host, "http://", 7) == 0) {
-			host += 7;
-		}
-		hlen = strcspn(host, "/");
-		if (hlen > 0) {
-			char tmp[64];
-
-			hlen = MIN(hlen, sizeof(tmp) - 1);
-			memcpy(tmp, host, hlen);
-			tmp[hlen] = '\0';
-			store_field("disc", tmp, s_disc, sizeof(s_disc));
-		}
+	if (ret != 0) {
+		shell_error(sh, "no cpid/env/uid fields found");
+		return;
 	}
 	shell_print(sh, "Stored from iotcDeviceConfig.json: cpid=%s env=%s duid=%s",
 		    s_cpid, s_env, s_duid);
 	shell_print(sh, "Discovery host: %s%s",
 		    s_disc[0] != '\0' ? s_disc : CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST,
 		    s_disc[0] != '\0' ? " (from json, used at runtime)" : " (build default)");
+	root = cJSON_Parse(json);
+	pf = cJSON_GetObjectItemCaseSensitive(root, "pf");
 	if (cJSON_IsString(pf)) {
 		shell_print(sh, "Cloud backend is set at BUILD time -- verify it matches:");
 		shell_print(sh, "  json cloud=%s   build=%s", pf->valuestring,

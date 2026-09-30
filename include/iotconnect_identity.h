@@ -77,6 +77,15 @@ int iotc_kv_save(const char *name, const void *data, size_t len);
  */
 const char *iotc_identity_discovery_host(void);
 
+/*
+ * Apply an iotcDeviceConfig.json block: parses cpid/env/uid(did)/disc and
+ * persists them to the active identity backend. Shared by the `iotc config`
+ * shell command and non-console provisioning transports (e.g. a Soft-AP web
+ * portal). Returns 0 on success, -EINVAL for unparseable JSON, -ENOENT when
+ * no identity fields were present.
+ */
+int iotc_identity_apply_config_json(const char *json);
+
 #ifdef __cplusplus
 }
 #endif
