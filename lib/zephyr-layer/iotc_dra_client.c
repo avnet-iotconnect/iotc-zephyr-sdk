@@ -245,15 +245,33 @@ int iotc_dra_run(const iotc_dra_config_t *cfg)
 	/* ------------------------------------------------------------------
 	 * Step 1: Discovery
 	 *
-	 * If a discovery host is configured (CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST),
-	 * use it verbatim -- this matches the device's provisioned endpoint (e.g.
-	 * the AWS region-specific awsdiscovery.iotconnect.io). Otherwise fall back
-	 * to the c-lib platform default (global discovery.iotconnect.io?pf=...).
+	 * If a discovery host is configured (CONFIG_IOTCONNECT_DRA_DISCOVERY_HOST,
+	 * or provisioned at runtime from iotcDeviceConfig.json), build the URL
+	 * against it WITH the ?pf= platform selector: the unified
+	 * discovery.iotconnect.io host serves multiple platforms and answers
+	 * "CpId not found" for AWS accounts without it, while instance-specific
+	 * hosts (e.g. awsdiscovery.iotconnect.io) simply ignore it. Otherwise
+	 * fall back to the c-lib platform default (global discovery host).
 	 * ------------------------------------------------------------------ */
 	if (cfg->discovery_host != NULL && cfg->discovery_host[0] != '\0') {
-		status = iotcl_dra_discovery_init_url_with_host(
-			&discovery_url, (char *)cfg->discovery_host,
-			cfg->cpid, cfg->env);
+		const char *pf = (cfg->platform == IOTC_DRA_PF_AZURE)
+					 ? IOTCL_PF_AZURE_STR
+					 : IOTCL_PF_AWS_STR;
+		char *url;
+		int n = snprintf(NULL, 0,
+				 "https://%s/api/v2.1/dsdk/cpId/%s/env/%s?pf=%s",
+				 cfg->discovery_host, cfg->cpid, cfg->env, pf);
+
+		url = k_malloc(n + 1);
+		if (url == NULL) {
+			status = IOTCL_ERR_OUT_OF_MEMORY;
+			goto out_free_body;
+		}
+		snprintf(url, n + 1,
+			 "https://%s/api/v2.1/dsdk/cpId/%s/env/%s?pf=%s",
+			 cfg->discovery_host, cfg->cpid, cfg->env, pf);
+		status = iotcl_dra_url_init(&discovery_url, url);
+		k_free(url);
 	} else if (cfg->platform == IOTC_DRA_PF_AZURE) {
 		status = iotcl_dra_discovery_init_url_azure(&discovery_url,
 							    cfg->cpid, cfg->env);
