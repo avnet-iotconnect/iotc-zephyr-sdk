@@ -74,7 +74,17 @@ static int network_up(void)
 	}
 	conn_mgr_mon_resend_status();
 	LOG_INF("Waiting for network connectivity...");
-	k_sem_take(&l4_connected_sem, K_FOREVER);
+
+	/* Field fallback: if the stored network cannot be joined (moved
+	 * device, replaced router, changed passphrase), reopen the setup
+	 * portal instead of retrying forever. Identity is untouched, so the
+	 * portal only needs the Wi-Fi step. */
+	if (k_sem_take(&l4_connected_sem,
+		       K_SECONDS(CONFIG_SOFTAP_PROV_WIFI_FALLBACK_TIMEOUT)) != 0) {
+		LOG_WRN("No connectivity after %d s -- reopening the setup portal",
+			CONFIG_SOFTAP_PROV_WIFI_FALLBACK_TIMEOUT);
+		return -ETIMEDOUT;
+	}
 	return 0;
 }
 
@@ -99,7 +109,14 @@ int main(void)
 	}
 
 	LOG_INF("Provisioned as duid=%s -- bringing up network", id.duid);
-	if (network_up() != 0) {
+	ret = network_up();
+	if (ret == -ETIMEDOUT) {
+		/* Stored network unreachable: offer the portal so the Wi-Fi
+		 * can be changed from a phone; everything else is kept. */
+		(void)portal_run();
+		return 0;
+	}
+	if (ret != 0) {
 		LOG_ERR("network did not come up");
 		return 0;
 	}
