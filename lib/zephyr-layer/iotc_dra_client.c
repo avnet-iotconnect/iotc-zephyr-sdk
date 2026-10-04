@@ -306,6 +306,20 @@ int iotc_dra_run(const iotc_dra_config_t *cfg)
 					   (const char *)body);
 	if (status != IOTCL_SUCCESS) {
 		LOG_ERR("DRA: discovery response parse failed: %d", status);
+		/* The platform reports account-level refusals (e.g. "Your
+		 * quota has been exceeded") in the "message" field of an
+		 * otherwise-empty response -- surface it. */
+		const char *m = strstr((const char *)body, "\"message\":\"");
+
+		if (m != NULL) {
+			m += strlen("\"message\":\"");
+			const char *e = strchr(m, '"');
+
+			if (e != NULL && e - m > 0 && e - m < 128) {
+				LOG_ERR("DRA: server message: %.*s",
+					(int)(e - m), m);
+			}
+		}
 		goto out_deinit_url;
 	}
 
