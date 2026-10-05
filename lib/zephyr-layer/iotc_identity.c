@@ -8,6 +8,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <zephyr/kernel.h>
@@ -739,6 +740,29 @@ static int cmd_show(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+static int cmd_msg_limit(const struct shell *sh, size_t argc, char **argv)
+{
+	extern uint32_t iotconnect_sdk_get_msg_limit(void);
+	extern uint32_t iotconnect_sdk_get_msg_count(void);
+	extern void iotconnect_sdk_set_msg_limit(uint32_t limit);
+
+	if (argc > 1) {
+		iotconnect_sdk_set_msg_limit((uint32_t)strtoul(argv[1], NULL, 10));
+	}
+	uint32_t limit = iotconnect_sdk_get_msg_limit();
+
+	if (limit == 0) {
+		shell_print(sh, "Telemetry message limit: UNLIMITED (%u sent "
+			    "this boot) -- watch your /IOTCONNECT quota",
+			    iotconnect_sdk_get_msg_count());
+	} else {
+		shell_print(sh, "Telemetry message limit: %u per boot (%u used). "
+			    "Protects your /IOTCONNECT quota; `iotc limit 0` "
+			    "disables.", limit, iotconnect_sdk_get_msg_count());
+	}
+	return 0;
+}
+
 static int cmd_clear(const struct shell *sh, size_t argc, char **argv)
 {
 	kv_delete("cpid");
@@ -898,6 +922,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(iotc_cmds,
 	SHELL_CMD_ARG(setup, NULL, "<duid> [cpid] [env]  guided device onboarding", cmd_setup, 2, 2),
 	SHELL_CMD(config, NULL, "paste iotcDeviceConfig.json to set cpid/env/duid", cmd_config),
 	SHELL_CMD(cred, &iotc_cred_cmds, "manual credential set/show/clear", NULL),
+	SHELL_CMD_ARG(limit, NULL,
+		      "[n]  show or set the telemetry message limit (0 = unlimited)",
+		      cmd_msg_limit, 1, 1),
 	SHELL_SUBCMD_SET_END
 );
 SHELL_CMD_REGISTER(iotc, &iotc_cmds, "IOTCONNECT device provisioning", NULL);

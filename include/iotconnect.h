@@ -166,6 +166,17 @@ int iotconnect_sdk_send_telemetry_string(const char *path, const char *value);
 /** Graceful MQTT disconnect; stops the message pump. */
 void iotconnect_sdk_disconnect(void);
 
+/*
+ * Demo quota protection. Telemetry publishes stop after the per-boot
+ * message limit (CONFIG_IOTCONNECT_DEMO_MSG_LIMIT, default 500) so an
+ * evaluation device cannot drain the account quota; ACKs and OTA status
+ * always go through. Adjustable at runtime (0 = unlimited) -- also exposed
+ * as the shell command `iotc limit [n]`.
+ */
+uint32_t iotconnect_sdk_get_msg_limit(void);
+uint32_t iotconnect_sdk_get_msg_count(void);
+void iotconnect_sdk_set_msg_limit(uint32_t limit);
+
 /** Tear down iotc-c-lib and free copied config strings. Safe if not inited. */
 void iotconnect_sdk_deinit(void);
 

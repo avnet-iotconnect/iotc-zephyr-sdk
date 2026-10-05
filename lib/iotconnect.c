@@ -50,6 +50,69 @@
 LOG_MODULE_REGISTER(iotconnect, CONFIG_IOTCONNECT_LOG_LEVEL);
 
 /* --------------------------------------------------------------------------
+ * Demo quota protection: cap telemetry publishes per boot
+ * (CONFIG_IOTCONNECT_DEMO_MSG_LIMIT; runtime-adjustable via `iotc limit`).
+ * Only messages to the telemetry (pub_rpt) topic count -- command ACKs and
+ * OTA status reports always go through.
+ * -------------------------------------------------------------------------- */
+
+static uint32_t s_msg_limit = CONFIG_IOTCONNECT_DEMO_MSG_LIMIT;
+static uint32_t s_msg_sent;
+static bool s_limit_announced;
+
+uint32_t iotconnect_sdk_get_msg_limit(void)
+{
+	return s_msg_limit;
+}
+
+uint32_t iotconnect_sdk_get_msg_count(void)
+{
+	return s_msg_sent;
+}
+
+void iotconnect_sdk_set_msg_limit(uint32_t limit)
+{
+	s_msg_limit = limit;
+	if (limit == 0) {
+		LOG_WRN("Telemetry message limit DISABLED -- watch your "
+			"/IOTCONNECT quota");
+	} else {
+		LOG_INF("Telemetry message limit set to %u (%u used this boot)",
+			limit, s_msg_sent);
+	}
+}
+
+static void msg_limited_publish(const char *topic, const char *json_str)
+{
+	IotclMqttConfig *mc = iotcl_mqtt_get_config();
+
+	if (mc != NULL && mc->pub_rpt != NULL && topic != NULL &&
+	    strcmp(topic, mc->pub_rpt) == 0) {
+		if (s_msg_limit != 0 && s_msg_sent >= s_msg_limit) {
+			static int64_t last_note;
+
+			if (last_note == 0 ||
+			    k_uptime_get() - last_note > 60000) {
+				LOG_WRN("Telemetry PAUSED: demo limit of %u "
+					"messages reached (protects your "
+					"/IOTCONNECT quota). Reboot to reset, "
+					"or raise it: iotc limit <n>",
+					s_msg_limit);
+				last_note = k_uptime_get();
+			}
+			return;
+		}
+		s_msg_sent++;
+		if (s_msg_limit != 0 && s_msg_sent * 10 == s_msg_limit * 9) {
+			LOG_WRN("Telemetry message limit: %u of %u used "
+				"(iotc limit <n> to change)",
+				s_msg_sent, s_msg_limit);
+		}
+	}
+	iotc_mqtt_client_publish(topic, json_str);
+}
+
+/* --------------------------------------------------------------------------
  * Singleton state
  * -------------------------------------------------------------------------- */
 
@@ -256,7 +319,7 @@ int iotconnect_sdk_init(IotConnectClientConfig *c)
 	cfg.device.instance_type = IOTCL_DCT_CUSTOM;
 	cfg.device.cpid = s_config.cpid;
 	cfg.device.duid = s_config.duid;
-	cfg.mqtt_send_cb = iotc_mqtt_client_publish;
+	cfg.mqtt_send_cb = msg_limited_publish;
 	cfg.events.cmd_cb = s_config.cmd_cb;
 	cfg.events.ota_cb = s_config.ota_cb;
 	cfg.time_fn = iotcl_default_time;
@@ -333,6 +396,14 @@ int iotconnect_sdk_init(IotConnectClientConfig *c)
 #endif /* CONFIG_IOTCONNECT_DRA */
 
 	s_inited = true;
+	if (!s_limit_announced) {
+		s_limit_announced = true;
+		if (s_msg_limit != 0) {
+			LOG_INF("Demo quota protection: telemetry limited to "
+				"%u messages per boot (change: iotc limit <n>, "
+				"0 = unlimited)", s_msg_limit);
+		}
+	}
 	IOTCL_INFO("IOTCONNECT SDK initialized (cpid=%s duid=%s)", s_config.cpid,
 		   s_config.duid);
 	return IOTCL_SUCCESS;

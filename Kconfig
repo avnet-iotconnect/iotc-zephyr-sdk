@@ -316,6 +316,20 @@ config IOTCONNECT_C2D_WORKQ_STACK_SIZE
 	  receive context (command/OTA callbacks run here).
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Demo quota protection
+# ---------------------------------------------------------------------------
+config IOTCONNECT_DEMO_MSG_LIMIT
+	int "Telemetry message limit per boot (0 = unlimited)"
+	default 500
+	help
+	  Stop publishing telemetry after this many messages so an evaluation
+	  device left running cannot consume the account's /IOTCONNECT message
+	  quota. Command acknowledgements and OTA status reports are never
+	  blocked. The device keeps its connection; reboot to reset the
+	  counter, change the limit at runtime with the shell command
+	  "iotc limit <n>", or set 0 here to disable the cap.
+
 # Device vitals (operational-telemetry sidecar)
 # ---------------------------------------------------------------------------
 config IOTCONNECT_DEVICE_VITALS
