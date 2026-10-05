@@ -254,6 +254,7 @@ int main(void)
 					iotcl_telemetry_set_number(msg, "meter.ptot", m.ptot);
 					iotcl_telemetry_set_number(msg, "meter.kwh", m.kwh);
 					iotcl_telemetry_set_number(msg, "meter.freq", m.freq);
+					iotcl_telemetry_set_number(msg, "meter.state", m.state);
 					iotcl_telemetry_set_number(msg, "meter.frames", m.frames);
 					iotcl_telemetry_set_number(msg, "meter.online",
 								   m.online ? 1 : 0);
