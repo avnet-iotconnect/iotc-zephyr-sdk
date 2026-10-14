@@ -613,6 +613,9 @@ int iotc_identity_apply_config_json(const char *json)
 
 #include <zephyr/shell/shell.h>
 #include "cJSON.h"
+#if defined(CONFIG_WIFI_CREDENTIALS)
+#include "iotc_wifi.h"
+#endif
 
 /* Minimal, dependency-free base64 decoder (skips whitespace/newlines, stops at
  * padding). Returns 0 on success. */
@@ -908,6 +911,40 @@ static int cmd_config(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+#if defined(CONFIG_WIFI_CREDENTIALS)
+static int cmd_wifi(const struct shell *sh, size_t argc, char **argv)
+{
+	struct wifi_credentials_personal creds = { 0 };
+	size_t ssid_len = strlen(argv[1]);
+	int ret;
+
+	if (ssid_len == 0 || ssid_len >= sizeof(creds.header.ssid)) {
+		shell_error(sh, "bad ssid");
+		return -EINVAL;
+	}
+	creds.header.ssid_len = ssid_len;
+	memcpy(creds.header.ssid, argv[1], ssid_len);
+	if (argc > 2 && argv[2][0] != '\0') {
+		creds.password_len = strlen(argv[2]);
+		if (creds.password_len >= sizeof(creds.password)) {
+			shell_error(sh, "psk too long");
+			return -EINVAL;
+		}
+		memcpy(creds.password, argv[2], creds.password_len);
+		creds.header.type = WIFI_SECURITY_TYPE_PSK;
+	} else {
+		creds.header.type = WIFI_SECURITY_TYPE_NONE;
+	}
+	ret = iotc_wifi_credentials_store(&creds);
+	if (ret != 0) {
+		shell_error(sh, "store failed (%d)", ret);
+		return ret;
+	}
+	shell_print(sh, "Stored Wi-Fi network \"%s\"", argv[1]);
+	return 0;
+}
+#endif /* CONFIG_WIFI_CREDENTIALS */
+
 SHELL_STATIC_SUBCMD_SET_CREATE(iotc_cred_cmds,
 	SHELL_CMD_ARG(cpid, NULL, "<cpid>  set company id", cmd_cpid, 2, 0),
 	SHELL_CMD_ARG(env, NULL, "<env>  set environment", cmd_env, 2, 0),
@@ -925,6 +962,11 @@ SHELL_STATIC_SUBCMD_SET_CREATE(iotc_cmds,
 	SHELL_CMD_ARG(limit, NULL,
 		      "[n]  show or set the telemetry message limit (0 = unlimited)",
 		      cmd_msg_limit, 1, 1),
+#if defined(CONFIG_WIFI_CREDENTIALS)
+	SHELL_CMD_ARG(wifi, NULL,
+		      "\"<ssid>\" [\"<psk>\"]  store Wi-Fi; evicts the oldest network when full",
+		      cmd_wifi, 2, 1),
+#endif
 	SHELL_SUBCMD_SET_END
 );
 SHELL_CMD_REGISTER(iotc, &iotc_cmds, "IOTCONNECT device provisioning", NULL);

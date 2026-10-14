@@ -24,6 +24,8 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/wifi_credentials.h>
+
+#include "iotc_wifi.h"
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/sys/reboot.h>
 
@@ -197,6 +199,7 @@ static int status_handler(struct http_client_ctx *client, enum http_transaction_
 
 static struct body_buf wifi_body;
 
+
 static int wifi_handler(struct http_client_ctx *client, enum http_transaction_status status,
 			const struct http_request_ctx *req,
 			struct http_response_ctx *rsp, void *user_data)
@@ -236,7 +239,7 @@ static int wifi_handler(struct http_client_ctx *client, enum http_transaction_st
 	}
 	cJSON_Delete(root);
 
-	ret = wifi_credentials_set_personal_struct(&creds);
+	ret = iotc_wifi_credentials_store(&creds);
 	if (ret != 0) {
 		LOG_ERR("wifi_credentials store failed (%d)", ret);
 		respond(rsp, 500, "store failed");
