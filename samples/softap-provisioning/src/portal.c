@@ -13,12 +13,14 @@
  * GET /api/status reports what is stored so the page can resume mid-flow.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/dhcpv4_server.h>
+#include <zephyr/net/socket.h>
 #include <zephyr/net/http/server.h>
 #include <zephyr/net/http/service.h>
 #include <zephyr/net/net_if.h>
@@ -348,10 +350,107 @@ static int finish_handler(struct http_client_ctx *client, enum http_transaction_
 	return 0;
 }
 
+/* ---- captive portal -------------------------------------------------------
+ * Phones detect a captive network by probing a known URL right after
+ * association. Answering every DNS query with the portal address (the
+ * DHCP lease names this device as the DNS server) and redirecting every
+ * unknown path makes the OS pop its sign-in sheet with this page --
+ * no address to type, and the sheet is always bound to the AP network,
+ * so a phone's mobile data cannot steal the traffic. */
+
+static void dns_thread_fn(void *a, void *b, void *c)
+{
+	uint8_t pkt[300];
+	struct net_sockaddr_in bind_addr = {
+		.sin_family = NET_AF_INET,
+		.sin_port = net_htons(53),
+	};
+	int sock;
+
+	ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+	(void)net_addr_pton(NET_AF_INET, PORTAL_AP_IP, &bind_addr.sin_addr);
+	sock = zsock_socket(NET_AF_INET, NET_SOCK_DGRAM, NET_IPPROTO_UDP);
+	if (sock < 0 || zsock_bind(sock, (struct net_sockaddr *)&bind_addr,
+				   sizeof(bind_addr)) < 0) {
+		LOG_ERR("captive DNS bind failed (%d)", -errno);
+		return;
+	}
+	for (;;) {
+		struct net_sockaddr_in from;
+		net_socklen_t fl = sizeof(from);
+		ssize_t len = zsock_recvfrom(sock, pkt, sizeof(pkt) - 16, 0,
+					     (struct net_sockaddr *)&from, &fl);
+
+		if (len < 12) {
+			continue;
+		}
+		/* Walk the question name, then QTYPE/QCLASS. */
+		ssize_t off = 12;
+
+		while (off < len && pkt[off] != 0 && (pkt[off] & 0xC0) == 0) {
+			off += pkt[off] + 1;
+		}
+		off += 5;
+		if (off > len) {
+			continue;
+		}
+		bool is_a = (pkt[off - 4] == 0 && pkt[off - 3] == 1);
+
+		pkt[2] = 0x81; pkt[3] = 0x80;         /* response, RA, NOERROR */
+		pkt[6] = 0; pkt[7] = is_a ? 1 : 0;    /* answer count */
+		pkt[8] = pkt[9] = pkt[10] = pkt[11] = 0;
+		if (is_a) {
+			/* name ptr to the question, A, IN, TTL 30 s, 4 bytes */
+			static const uint8_t rr[] = { 0xC0, 0x0C, 0, 1, 0, 1,
+						      0, 0, 0, 30, 0, 4 };
+
+			memcpy(&pkt[off], rr, sizeof(rr));
+			off += sizeof(rr);
+			memcpy(&pkt[off], &bind_addr.sin_addr, 4);
+			off += 4;
+		}
+		(void)zsock_sendto(sock, pkt, off, 0,
+				   (struct net_sockaddr *)&from, fl);
+	}
+}
+
+static K_THREAD_STACK_DEFINE(dns_stack, 1536);
+static struct k_thread dns_thread;
+
+static int captive_handler(struct http_client_ctx *client, enum http_transaction_status status,
+			   const struct http_request_ctx *req,
+			   struct http_response_ctx *rsp, void *user_data)
+{
+	static const struct http_header loc = {
+		.name = "Location", .value = "http://" PORTAL_AP_IP "/",
+	};
+
+	ARG_UNUSED(client); ARG_UNUSED(req); ARG_UNUSED(user_data);
+	if (status != HTTP_SERVER_REQUEST_DATA_FINAL) {
+		return 0;
+	}
+	rsp->status = 302;
+	rsp->headers = &loc;
+	rsp->header_count = 1;
+	rsp->final_chunk = true;
+	return 0;
+}
+
+static struct http_resource_detail_dynamic captive_detail = {
+	.common = {
+		.type = HTTP_RESOURCE_TYPE_DYNAMIC,
+		.bitmask_of_supported_http_methods =
+			BIT(HTTP_GET) | BIT(HTTP_HEAD) | BIT(HTTP_POST),
+	},
+	.cb = captive_handler,
+	.user_data = NULL,
+};
+
 /* ---- HTTP service wiring ------------------------------------------------- */
 
 static uint16_t portal_port = 80;
-HTTP_SERVICE_DEFINE(portal_svc, NULL, &portal_port, 1, 4, NULL, NULL, NULL);
+HTTP_SERVICE_DEFINE(portal_svc, NULL, &portal_port, 2, 4, NULL,
+		    &captive_detail.common, NULL);
 
 static struct http_resource_detail_static index_detail = {
 	.common = {
@@ -433,7 +532,7 @@ static int ap_up(struct net_if *ap_iface)
 	printk("\n========================================================\n");
 	printk("  DEVICE SETUP -- connect a phone or laptop to Wi-Fi:\n");
 	printk("      network:  %s   (open)\n", ap_ssid);
-	printk("  then browse to:\n");
+	printk("  the setup page opens in the sign-in prompt, or browse:\n");
 	printk("      http://%s/\n", PORTAL_AP_IP);
 	printk("  Serial provisioning (iotcprov/iotc) still works too.\n");
 	printk("========================================================\n\n");
@@ -453,6 +552,10 @@ int portal_run(void)
 	if (ret != 0) {
 		return ret;
 	}
+	k_thread_create(&dns_thread, dns_stack, K_THREAD_STACK_SIZEOF(dns_stack),
+			dns_thread_fn, NULL, NULL, NULL,
+			K_PRIO_PREEMPT(8), 0, K_NO_WAIT);
+	k_thread_name_set(&dns_thread, "captive_dns");
 	ret = http_server_start();
 	if (ret != 0 && ret != -EALREADY) {
 		LOG_ERR("http_server_start failed (%d)", ret);
