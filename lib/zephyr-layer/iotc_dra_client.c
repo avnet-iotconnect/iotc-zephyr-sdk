@@ -141,6 +141,16 @@ static int dra_https_get(const char *hostname,
 		goto out_free_addr;
 	}
 
+	/* Zephyr sockets have no default timeout: a peer that goes silent
+	 * mid-handshake would block connect()/recv() forever.
+	 */
+	struct zsock_timeval tv = {
+		.tv_sec = timeout_ms / 1000,
+		.tv_usec = (timeout_ms % 1000) * 1000,
+	};
+	(void)zsock_setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	(void)zsock_setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
 	ret = zsock_setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
 			 sec_tag_list, sizeof(sec_tag_list));
 	if (ret < 0) {
