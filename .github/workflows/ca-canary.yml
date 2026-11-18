@@ -1,0 +1,59 @@
+name: CA canary
+
+# Verifies that the live IOTCONNECT endpoints still present TLS chains
+# that validate against the exact CA bundle compiled into firmware
+# (include/iotconnect_ca_roots.h). A failure here means fielded binaries
+# built from this tree can no longer reach discovery -- fix the header
+# and cut new images before customers hit it.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1,4"   # Mondays and Thursdays, 06:00 UTC
+  workflow_dispatch:
+  push:
+    paths:
+      - include/iotconnect_ca_roots.h
+      - .github/workflows/ca-canary.yml
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract pinned bundles from the header
+        run: |
+          python3 - <<'EOF'
+          import re
+          src = open("include/iotconnect_ca_roots.h").read()
+          for name in ("dra_ca_pem", "broker_ca_pem"):
+              m = re.search(name + r"\[\]\s*=(.*?);", src, re.S)
+              lits = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+              pem = "".join(l.encode().decode("unicode_escape") for l in lits)
+              open(name + ".pem", "w").write(pem)
+              n = pem.count("BEGIN CERTIFICATE")
+              print(name, ":", n, "certificate(s)")
+              assert n > 0
+          EOF
+
+      - name: Verify live discovery chains against dra_ca_pem
+        run: |
+          set -e
+          fail=0
+          for h in discovery.iotconnect.io awsdiscovery.iotconnect.io; do
+            echo "::group::$h"
+            echo | openssl s_client -connect "$h:443" -servername "$h" -showcerts 2>/dev/null \
+              | awk '/BEGIN CERT/,/END CERT/' > chain.pem
+            awk '/BEGIN CERT/{n++} {print > ("c_" n ".pem")}' chain.pem
+            openssl x509 -in c_1.pem -noout -subject -issuer -dates
+            cat c_2.pem c_3.pem c_4.pem 2>/dev/null > inter.pem || true
+            if openssl verify -CAfile dra_ca_pem.pem -untrusted inter.pem c_1.pem; then
+              echo "$h: chain verifies against the pinned bundle"
+            else
+              echo "::error::$h no longer verifies against dra_ca_pem -- fielded firmware cannot reach discovery"
+              fail=1
+            fi
+            rm -f chain.pem inter.pem c_*.pem
+            echo "::endgroup::"
+          done
+          exit $fail
